@@ -260,7 +260,9 @@ local function choose(items, prompt, format)
   if #items == 0 then return nil end
   return bridge(function(done)
     vim.ui.select(items, { prompt = prompt, format_item = function(it)
-      return format and format(it) or (it.label or it.id or tostring(it))
+      local text = format and format(it) or (it.label or it.id or tostring(it))
+      -- dressing 不会把 nui 的 padding 透传出来，想要呼吸感只能自己加空格
+      return "  " .. text .. "  "
     end }, function(choice)
       done(choice)
     end)
@@ -328,7 +330,7 @@ local function pick_deps(all_deps)
   -- 名称列宽：整窗宽 × 86% 再扣掉预览窗、组列、id 列、竖线与光标，
   -- 不够宽就自己截断加省略号，而不是被窗口边框硬切（截图里那种断字很难看）
   local total_w = math.floor(vim.o.columns * 0.86)
-  local preview_w = math.floor(total_w * 0.34)
+  local preview_w = math.floor(total_w * 0.36)
   local w_name = math.max(14, total_w - preview_w - w_group - w_id - 12)
 
   -- 组色调色板：同组同色，相邻组轮换，列表有层次而不是一片灰
@@ -395,6 +397,10 @@ local function pick_deps(all_deps)
 
     pickers.new({}, {
       prompt_title = "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成",
+      -- 让 telescope 长得跟 nui/noice 同一套：标题嵌在顶部边框、
+      -- 结果与预览窗各有名字、条目留左右内边距
+      results_title = " 依赖　分组 │ id │ 名称 ",
+      preview_title = " 说明 ",
       finder = finders.new_table({
         results = all_deps,
         entry_maker = function(d)
@@ -417,10 +423,12 @@ local function pick_deps(all_deps)
       selection_caret = "❯ ",  -- 光标行前缀，替代默认的空白
       multi_icon = "  ",       -- 勾选行前缀保持两空格，避免与原生高亮叠加错位
       layout_config = {
-        width = 0.86,
-        height = 0.78,
-        horizontal = { preview_width = 0.34 },
+        width = 0.84,
+        height = 0.80,
+        prompt_position = "top",  -- 关键：默认 bottom 像命令行，top 才是标题感
+        horizontal = { preview_width = 0.36 },
       },
+      entry_prefix = "  ",        -- 左右留白，避免文字贴边框
       attach_mappings = function(pb, map)
         -- 键位（v4 定稿）：Tab 勾选，Enter 确认完成
         -- 只用 map() 注册本 picker；绝不替换 actions 全局表，
