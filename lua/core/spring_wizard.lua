@@ -295,7 +295,7 @@ local function pick_deps(all_deps)
   if not (ok and okf and okc and oka and oks and okp and okd) then
     local picked = {}
     while true do
-      local menu = { { id = "__done__", name = "✅ 完成（已选 " .. #picked .. " 项）" } }
+      local menu = { { id = "__done__", name = "完成（已选 " .. #picked .. " 项）" } }
       for _, d in ipairs(all_deps) do
         local taken = false
         for _, id in ipairs(picked) do if id == d.id then taken = true end end
@@ -310,7 +310,7 @@ local function pick_deps(all_deps)
     end
   end
 
-  -- 列宽按最长 id 自适应（最长 42 字符，写死 %-22s 会顶歪名称列）
+  -- 列宽按最长 id 自适应，免得长 id 顶歪名称列
   local w_id = 0
   for _, d in ipairs(all_deps) do w_id = math.max(w_id, #(d.id or "")) end
   w_id = math.min(w_id, 44)
@@ -326,22 +326,7 @@ local function pick_deps(all_deps)
     },
   })
 
-  local done_row = { __done = true, id = "__done__", name = "", group = "" }
-  local rows = vim.deepcopy(all_deps)
-  table.insert(rows, 1, done_row)
-
   local function preview_lines(d)
-    if d.__done then
-      return {
-        "多选操作说明：",
-        "",
-        "  <Enter>  勾选当前并下移",
-        "  <Tab>    勾选/取消",
-        "",
-        "按 <C-s> 或在顶部「完成」行回车，进入下一步。",
-        "勾选数实时显示在右下角。",
-      }
-    end
     local lines = {
       "名称 " .. d.name,
       "分组 " .. d.group,
@@ -370,21 +355,14 @@ local function pick_deps(all_deps)
     end
 
     pickers.new({}, {
-      prompt_title = "⑥ 依赖　分组 │ id │ 名称　　<Enter> 勾选并下移  <C-s> 完成",
+      prompt_title = "⑥ 依赖　<Tab> 勾选　<Enter> 完成　分组 │ id │ 名称",
       finder = finders.new_table({
-        results = rows,
+        results = all_deps,
         entry_maker = function(d)
-          if d.__done then
-            return {
-              value = "__done__",
-              __done = true,
-              display = "✅ 完成并继续（勾选数见右下角）",
-              ordinal = "\0done",
-            }
-          end
           return {
             value = d.id,
             __dep = d,
+            -- 注意：disp 必须单行调用，LuaJIT 下跨行会把后几个参数丢掉
             display = disp({ { cut(d.group, w_group), "Directory" }, { d.id, "Function" }, d.name }),
             ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
           }
@@ -398,34 +376,24 @@ local function pick_deps(all_deps)
         horizontal = { preview_width = 0.40 },
       },
       attach_mappings = function(pb, map)
-        -- 只用 map() 注册本 picker；绝不替换 actions 全局表
-        --（:replace 会泄漏去别的 picker，替换体里再调还自行递归）
-        local function current_is_done()
-          local e = state.get_selected_entry()
-          return e and (e.__done or e.value == "__done__")
-        end
+        -- 键位（v4 定稿）：Tab 勾选，Enter 确认完成
+        -- 只用 map() 注册本 picker；绝不替换 actions 全局表，
+        -- 否则 :replace 会泄漏去别的 picker，替换体里再调自身还递归
         local function finish()
           local picks = state.get_multiple_selected()
           local got = {}
-          for _, e in ipairs(picks) do
-            if e.value and e.value ~= "__done__" then got[#got + 1] = e.value end
-          end
+          for _, e in ipairs(picks) do got[#got + 1] = e.value end
           actions.close(pb)
           once(got)
-        end
-        local function enter_key()
-          if current_is_done() then return finish() end
-          actions.toggle_selection(pb)
-          actions.move_selection_next(pb)
         end
         local function cancel_key()
           actions.close(pb)
           once(nil)
         end
-        map("i", "<Enter>", enter_key)
-        map("n", "<Enter>", enter_key)
         map("i", "<Tab>", actions.toggle_selection)
         map("n", "<Tab>", actions.toggle_selection)
+        map("i", "<Enter>", finish)
+        map("n", "<Enter>", finish)
         map("i", "<C-s>", finish)
         map("n", "<C-s>", finish)
         map("i", "<Esc>", cancel_key)
@@ -436,8 +404,6 @@ local function pick_deps(all_deps)
     }):find()
   end)
 end
-
-
 ----------------------------------------------------------------------------
 -- 6. 主流程（字段顺序对齐 IDEA New Project）
 ----------------------------------------------------------------------------
