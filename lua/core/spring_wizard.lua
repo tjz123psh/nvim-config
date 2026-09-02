@@ -315,8 +315,20 @@ local function pick_deps(all_deps)
   for _, d in ipairs(all_deps) do w_id = math.max(w_id, #(d.id or "")) end
   w_id = math.min(w_id, 44)
   local w_group = 18
+
+  -- 组色调色板：同组同色，相邻组轮换，列表有层次而不是一片灰
+  local TONES = { "Directory", "Keyword", "String", "Statement", "Type" }
+  local tone_seq, last_group = 0, nil
+  for _, d in ipairs(all_deps) do
+    if d.group ~= last_group then
+      tone_seq = tone_seq + 1
+      last_group = d.group
+    end
+    d.__tone = TONES[((tone_seq - 1) % #TONES) + 1]
+  end
+
   local disp = entry_display.create({
-    separator = " ",
+    separator = " │ ",  -- 列分隔用竖线，视觉上就是一张表格
     items = {
       -- 三个 remaining：带 width 的列会在 entry_maker 阶段查 status.layout，
       -- 那时布局还没建好（实测报 layout nil）；对齐由 cut() 补空格负责
@@ -328,12 +340,15 @@ local function pick_deps(all_deps)
 
   local function preview_lines(d)
     local lines = {
-      "名称 " .. d.name,
-      "分组 " .. d.group,
-      "id   " .. d.id,
+      "● " .. d.name,
+      "  分组   " .. d.group,
+      "  id     " .. d.id,
+      string.rep("─", 40),
       "",
     }
-    for _, l in ipairs(wrap_text(d.description, 42)) do lines[#lines + 1] = l end
+    for _, l in ipairs(wrap_text(d.description, 40)) do
+      lines[#lines + 1] = "  " .. l
+    end
     return lines
   end
 
@@ -362,14 +377,16 @@ local function pick_deps(all_deps)
           return {
             value = d.id,
             __dep = d,
-            -- 注意：disp 必须单行调用，LuaJIT 下跨行会把后几个参数丢掉
-            display = disp({ { cut(d.group, w_group), "Directory" }, { d.id, "Function" }, d.name }),
+            -- disp 必须单行调用（LuaJIT 跨行丢参数）；id 也 cut 到定宽，竖线才能对齐
+            display = disp({ { cut(d.group, w_group), d.__tone }, { cut(d.id, w_id), "Function" }, d.name }),
             ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
           }
         end,
       }),
       sorter = conf.values.generic_sorter({}),
       previewer = dep_preview,
+      selection_caret = "❯ ",  -- 光标行前缀，替代默认的空白
+      multi_icon = "  ",       -- 勾选行前缀保持两空格，避免与原生高亮叠加错位
       layout_config = {
         width = 0.86,
         height = 0.78,
