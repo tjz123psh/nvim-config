@@ -233,23 +233,87 @@ end
 -- 4. UI 桥与视觉主题
 -- ----------------------------------------------------------------------------
 
--- 视觉主题：只 link 到已有语义组，不写死十六进制色，换主题不会花
--- 对应你提的几点：
---   描边太淡   → WizBorder 用 Special（catppuccin 紫红），配双线框
---   深蓝底闷   → 当前行改用 Visual 底色 + backdrop 压暗编辑器，卡片浮出来
---   文字没层次 → 主键 Function 亮色 / 分组 Identifier / 说明 Comment 压暗
-local HL_GROUPS = {
-  { "WizBorder",     "Special"    },
-  { "WizCursorLine", "Visual"     },
-  { "WizKey",        "Function"   },
-  { "WizBadge",      "Identifier" },
-  { "WizHint",       "Comment"    },
+-- ===== 赛博霓虹主题（2026-09-02 v4）=====
+-- 设计基准（对应你发的重设计规格）：
+--   背景 #0D1117 最深黑       面板不透明，压暗编辑器，卡片浮出
+--   边框 #00E5FF 霓虹青       极细锐利圆角（╭╮╰╯），且随时间轻微呼吸（pulse）
+--   主文字 #E6EDF3 亮白       关键数据列（id）
+--   选中行  文字 #00FFFF      青光环：青黑底 + 青色下划线，模拟发光
+--   关键词 #FF00E0 品红       Filter 匹配高亮 / 标题装饰
+--   状态徽章 #FFC107 琥珀     分组（AI、SQL…）
+--   计数 204/204 琥珀加粗     与正文区分字重
+-- 终端物理限制（没有透明/发光/圆角渲染），用底色+下划线+字重近似：
+--   发光 → 选中行 bg=#0A2B36 青黑 + underline sp=#00E5FF
+--   呼吸 → timer 交替 WizBorder 的 fg
+--   圆角 → borderchars 用 ╭╮╰╯ 半圆角字符
+local NEON = {
+  bg      = "#0D1117",
+  border  = "#00E5FF",
+  borderB = "#33EBFF",
+  borderC = "#00C8E8",
+  sun     = "#00FFFF",  -- 选中行文字
+  white   = "#E6EDF3",  -- 主文字
+  grey    = "#8B98A8",  -- 次文字（deps 名称）
+  dim     = "#3D4B57",  -- 未选中 ○ / 空态
+  magenta = "#FF00E0",  -- 关键词
+  amber   = "#FFC107",  -- 状态徽章
+  rowbg   = "#0A2B36",  -- 选中行底（青黑）
+}
+
+local HL_DEFS = {
+  { "WizBg",        { bg = NEON.bg } },
+  { "WizBorder",    { fg = NEON.border } },
+  { "WizTitle",     { fg = NEON.border, bold = true } },
+  { "WizCursorLine",{ bg = NEON.rowbg, fg = NEON.sun, bold = true, underline = true, sp = NEON.border } },
+  { "WizKey",       { fg = NEON.white } },
+  { "WizSel",       { fg = NEON.sun, bold = true } },
+  { "WizBadge",     { fg = NEON.amber, bold = true } },
+  { "WizHint",      { fg = NEON.grey } },
+  { "WizDim",       { fg = NEON.dim } },
+  { "WizMagenta",   { fg = NEON.magenta, bold = true } },
+}
+
+-- snacks 用 default=true 注册的组，这里后注册（无 default）覆盖成霓虹色
+local SNACKS_HL = {
+  { "SnacksPickerTotals",     { fg = NEON.amber, bold = true } },   -- 204/204 计数器
+  { "SnacksPickerPrompt",     { fg = NEON.border, bold = true } },  -- >> 提示符
+  { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } }, -- 过滤匹配词
+  { "SnacksPickerSelected",   { fg = NEON.border, bold = true } },  -- ▣ 已选
+  { "SnacksPickerUnselected", { fg = NEON.dim } },                  -- □ 未选
+  { "SnacksPickerInput",      { fg = NEON.white } },
 }
 
 local function define_highlights()
-  for _, g in ipairs(HL_GROUPS) do
-    vim.api.nvim_set_hl(0, g[1], { link = g[2], default = true })
+  for _, d in ipairs(HL_DEFS) do
+    vim.api.nvim_set_hl(0, d[1], d[2])
   end
+  for _, s in ipairs(SNACKS_HL) do
+    vim.api.nvim_set_hl(0, s[1], s[2])
+  end
+end
+
+-- 边框呼吸：WizBorder 在三个青色之间缓慢过渡（1.2s 一步）
+local border_timer = nil
+local border_step = 0
+local function stop_pulse()
+  if border_timer then
+    pcall(vim.uv.timer_stop, border_timer)
+    pcall(vim.uv.timer_close, border_timer)
+    border_timer = nil
+  end
+  pcall(vim.api.nvim_set_hl, 0, "WizBorder", { fg = NEON.border })
+end
+local function start_pulse()
+  stop_pulse()
+  border_step = 0
+  border_timer = vim.uv.new_timer()
+  border_timer:start(0, 1200, function()
+    border_step = border_step + 1
+    local c = ({ NEON.border, NEON.borderB, NEON.borderC })[(border_step % 3) + 1]
+    vim.schedule(function()
+      pcall(vim.api.nvim_set_hl, 0, "WizBorder", { fg = c })
+    end)
+  end)
 end
 
 -- 注意：snacks.picker.win.Config 只接受 input / list / preview 三个键。
@@ -257,19 +321,20 @@ end
 -- 并取 win.keys，backdrop 是数字 → "attempt to index local 'win' (a number value)"。
 -- 遮罩效果改由每个窗口自己的 snacks.win.Config.backdrop 提供（那里才合法）。
 local function win_config()
+  local borderchars = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
   return {
     input = {
-      border = "double",
-      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder,WinSeparator:WizBorder",
+      border = borderchars,
+      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle,WinSeparator:WizBorder",
     },
     list = {
-      border = "double",
-      backdrop = 60,  -- 压暗编辑器背景，卡片浮出来（合法位置：单个窗口内）
-      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder,CursorLine:WizCursorLine,Search:None",
+      border = borderchars,
+      backdrop = 60,  -- 压暗编辑器背景，霓虹卡片浮出来（合法位置：单个窗口内）
+      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle,CursorLine:WizCursorLine,Search:None",
     },
     preview = {
-      border = "double",
-      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder",
+      border = borderchars,
+      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle",
     },
   }
 end
@@ -305,7 +370,7 @@ local function cancel()
   vim.notify("已取消，未改动任何文件", vim.log.levels.INFO)
 end
 
--- 主键亮 + 说明暗，替代之前那种「maven · pom.xml」中点拼接
+-- 主键亮 + 说明暗：id 亮白、hint 灰，窄列表里像终端命令
 local function fmt_hint(item)
   local d = item.item or item
   return {
@@ -313,6 +378,17 @@ local function fmt_hint(item)
     { "   " },
     { d.hint or "", "WizHint" },
   }
+end
+
+-- 递归遍历 layout 的所有 box（default 预设里 list 嵌在 vertical box 内部，
+-- 只在 layout.layout 一层迭代会漏掉它，高度贴合就白写了）
+local function each_box(root, fn)
+  local function walk(box)
+    if type(box) ~= "table" then return end
+    fn(box)
+    for _, child in ipairs(box) do walk(child) end
+  end
+  walk(root)
 end
 
 ----------------------------------------------------------------------------
@@ -333,10 +409,22 @@ local function pick_one(items, title, fmt)
       completed = true
       done(choice)
     end
+    start_pulse()
     Snacks.picker.pick({
       source = "select",
       title = title,
-      layout = "select",   -- 高度贴合条目数，不再留大片空底
+      layout = {
+        preset = "select",
+        config = function(layout)
+          -- 高度贴合条目数：列表占满条目高度，不再留大片空底
+          -- （config 收到的是合并后的完整配置，box 树在 layout.layout 里）
+          each_box(layout.layout or layout, function(box)
+            if box.win == "list" and not box.height then
+              box.height = math.max(math.min(#items + 1, vim.o.lines * 0.8 - 10), 2)
+            end
+          end)
+        end,
+      },
       win = win_config(),
       finder = function()
         local ret = {}
@@ -357,6 +445,7 @@ local function pick_one(items, title, fmt)
           -- deliver(nil)，协程带着 nil 恢复，流程误判成「用户取消」
           if completed then return end
           completed = true
+          stop_pulse()
           local chosen = pitem and pitem.item
           picker:close()
           vim.schedule(function() done(chosen) end)
@@ -365,6 +454,7 @@ local function pick_one(items, title, fmt)
       on_close = function()
         if completed then return end
         completed = true
+        stop_pulse()
         vim.schedule(function() done(nil) end)
       end,
     })
@@ -380,23 +470,40 @@ local function pick_deps(all_deps)
       completed = true
       done(v)
     end
+    start_pulse()
 
-    local w_id, w_group = 0, 0
+    -- 列宽策略：id 是主键列（亮白），名称列给足空间不截断。
+    -- 窗口宽 = 编辑器列数的 62%（上限 112），右下角预览再挤点宽度。
+    local list_w = math.min(math.floor(vim.o.columns * 0.62), 112)
+    local w_id = 0
     for _, d in ipairs(all_deps) do
       w_id = math.max(w_id, #(d.id or ""))
-      w_group = math.max(w_group, #(d.group or ""))
     end
-    w_id = math.min(w_id, 44)
-    w_group = math.min(w_group, 18)
-    local w_name = 30
+    w_id = math.max(math.min(w_id, 22), 8)          -- id 列：实际最长 id，封顶 22
+    local w_group = math.min(12, 12)                 -- 分组徽章列固定 12
+    local w_name = math.max(list_w - w_id - w_group - 16, 16) -- 名称列：剩余全部
 
     Snacks.picker.pick({
       source = "select",
       title = "⑥ 选择依赖　Tab 勾选　Enter 完成",
-      layout = "default",   -- 列表 + 右侧预览
-      win = WIN,
-      -- 每行都显示勾选框，未选是 ○、已选是 ●（snacks 内置列，不用自绘）
-      formatters = { selected = { show_always = true, unselected = true } },
+      layout = {
+        preset = "default",  -- 列表 + 右侧预览
+        config = function(layout)
+          -- 高度贴合条目数（封顶 22 行）；预览窗占 30% 宽，不再给 50%
+          each_box(layout.layout or layout, function(box)
+            if box.win == "list" and not box.height then
+              box.height = math.max(math.min(#all_deps + 2, 22), 3)
+            end
+            if box.win == "preview" then
+              box.width = 0.3
+            end
+          end)
+        end,
+      },
+      -- win_config 里 backdrop 是压暗编辑器：卡片浮出来
+      win = win_config(),
+      -- 每行都显示勾选框：未选 □、已选 ▣，像素风
+      formatters = { selected = { show_always = true, unselected = true, icons = { unselected = "□ ", selected = "▣ " } } },
       finder = function()
         local ret = {}
         for idx, d in ipairs(all_deps) do
@@ -408,14 +515,16 @@ local function pick_deps(all_deps)
         end
         return ret
       end,
-      format = function(item)
+      format = function(item, picker)
         local d = item.item or item
+        local current = picker and picker.list and picker.list:current()
+        local is_cur = current == item
         return {
-          { cut(d.id, w_id), "WizKey" },
+          { cut(d.id, w_id), is_cur and "WizSel" or "WizKey" },
           { "  " },
-          { cut(d.group, w_group), "WizBadge" },
+          { "[" .. cut(d.group, w_group - 2) .. "]", "WizBadge" },
           { "  " },
-          { cut_last(d.name, w_name), "WizHint" },
+          { cut_last(d.name, w_name), is_cur and "WizSel" or "WizHint" },
         }
       end,
       preview = function(ctx)
@@ -430,9 +539,19 @@ local function pick_deps(all_deps)
         }
         for _, l in ipairs(wrap_text(d.description, 44)) do lines[#lines + 1] = l end
         lines[#lines + 1] = ""
-        
+
         pcall(function() vim.bo[ctx.buf].modifiable = true end)
+        pcall(vim.api.nvim_buf_clear_namespace, ctx.buf, -1, 0, -1) -- 旧高亮先清，防止行号错位
         vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, lines)
+        -- 霓虹层次：标签琥珀 / 值亮白 / id 青 / 分隔线青
+        local function hl(ln, c0, c1, grp)
+          pcall(vim.api.nvim_buf_add_highlight, ctx.buf, -1, grp, ln, c0, c1)
+        end
+        hl(0, 0, 8, "WizBadge"); hl(0, 8, -1, "WizKey")
+        hl(1, 0, 8, "WizBadge"); hl(1, 8, -1, "WizBadge")
+        hl(2, 0, 8, "WizBadge"); hl(2, 8, -1, "WizTitle")
+        hl(3, 0, -1, "WizBorder")
+        for i = 5, #lines - 2 do hl(i, 0, -1, "WizHint") end
         return true
       end,
       filter = {},
@@ -440,6 +559,7 @@ local function pick_deps(all_deps)
         confirm = function(picker)
           if completed then return end
           completed = true
+          stop_pulse()
           local ids = {}
           for _, it in ipairs(picker.list.selected or {}) do
             if it.item and it.item.id then ids[#ids + 1] = it.item.id end
@@ -451,6 +571,7 @@ local function pick_deps(all_deps)
       on_close = function()
         if completed then return end
         completed = true
+        stop_pulse()
         vim.schedule(function() done(nil) end)
       end,
     })
