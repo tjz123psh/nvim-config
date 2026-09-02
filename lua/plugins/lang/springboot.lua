@@ -29,7 +29,10 @@ return {
     -- 放在 keys 里而不是在 config 里 map：这样在非 java 文件也能按
     -- <leader>sp 建项目，lazy 会在按下时才加载插件
     keys = {
-      { "<leader>sp", "<cmd>SpringBootNewProject<cr>", desc = "Spring Initializr: 新建项目" },
+      -- 用自己的向导：springboot-nvim 自带的 :SpringBootNewProject 在 Boot 4 下
+      -- 会把 4.1.1.RELEASE 这种 id 写进 pom，父 POM 解析不到（详见 spring_wizard.lua 头注释）。
+      { "<leader>sp", function() require("core.spring_wizard").create() end, desc = "Spring Boot 项目向导（可搜索选择）" },
+      { "<leader>sP", "<cmd>SpringBootNewProject<cr>", desc = "原版向导（不推荐：Boot 4 版本号有 bug）" },
       { "<leader>Gc", function() require("springboot-nvim").generate_class() end, desc = "生成: Java Class" },
       { "<leader>Gi", function() require("springboot-nvim").generate_interface() end, desc = "生成: Java Interface" },
       { "<leader>Ge", function() require("springboot-nvim").generate_enum() end, desc = "生成: Java Enum" },
@@ -37,6 +40,7 @@ return {
     },
 
     config = function()
+      require("core.spring_wizard").setup()
       local springboot = require("springboot-nvim")
       springboot.setup({})
 
