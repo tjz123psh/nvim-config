@@ -197,6 +197,15 @@ local function cut(text, width)
   return string.sub(text, 1, width - 1) .. "~"
 end
 
+-- 仅用于最后一列的截断：… 占 3 字节 1 列，telescope 算列位置用的是字节长度，
+-- 放在中间列会让后面的分隔线错位，所以只在末列用它。
+local function cut_last(text, width)
+  text = text or ""
+  if #text <= width then return text end
+  if width <= 1 then return string.sub(text, 1, width) end
+  return string.sub(text, 1, width - 1) .. "\226\128\166"
+end
+
 -- 按词换行，供预览窗格显示 description
 local function wrap_text(text, width)
   local lines, cur = {}, ""
@@ -314,7 +323,13 @@ local function pick_deps(all_deps)
   local w_id = 0
   for _, d in ipairs(all_deps) do w_id = math.max(w_id, #(d.id or "")) end
   w_id = math.min(w_id, 44)
-  local w_group = 18
+  local w_group = 16  -- 最长缩短组名 Cloud Discovery=15
+
+  -- 名称列宽：整窗宽 × 86% 再扣掉预览窗、组列、id 列、竖线与光标，
+  -- 不够宽就自己截断加省略号，而不是被窗口边框硬切（截图里那种断字很难看）
+  local total_w = math.floor(vim.o.columns * 0.86)
+  local preview_w = math.floor(total_w * 0.34)
+  local w_name = math.max(14, total_w - preview_w - w_group - w_id - 12)
 
   -- 组色调色板：同组同色，相邻组轮换，列表有层次而不是一片灰
   local TONES = { "Directory", "Keyword", "String", "Statement", "Type" }
@@ -356,8 +371,16 @@ local function pick_deps(all_deps)
     title = " 说明 ",
     dynamic_preview_title = true,
     define_preview = function(self, entry)
+      -- 字段是 self.state.bufnr（buffer_previewer 内部用 get_bufnr/set_bufnr 存取），
+      -- 之前写的 self.previewbufnr 根本不存在，永远 nil：既报
+      -- Invalid 'buf': Expected Lua number，又让预览窗格全空
+      local st = self.state
+      if not st or not st.bufnr or not vim.api.nvim_buf_is_valid(st.bufnr) then
+        return
+      end
       local d = entry and entry.__dep or {}
-      vim.api.nvim_buf_set_lines(self.previewbufnr, 0, -1, false, preview_lines(d))
+      vim.bo[st.bufnr].modifiable = true
+      vim.api.nvim_buf_set_lines(st.bufnr, 0, -1, false, preview_lines(d))
     end,
   })
 
@@ -370,15 +393,20 @@ local function pick_deps(all_deps)
     end
 
     pickers.new({}, {
-      prompt_title = "⑥ 依赖　<Tab> 勾选　<Enter> 完成　分组 │ id │ 名称",
+      prompt_title = "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成",
       finder = finders.new_table({
         results = all_deps,
         entry_maker = function(d)
           return {
             value = d.id,
             __dep = d,
-            -- disp 必须单行调用（LuaJIT 跨行丢参数）；id 也 cut 到定宽，竖线才能对齐
-            display = disp({ { cut(d.group, w_group), d.__tone }, { cut(d.id, w_id), "Function" }, d.name }),
+            -- 必须是函数！entry_display.resolve 里只有 type(entry.display)=="function"
+            -- 才会拿到第二个返回值 display_highlights；写成 display = disp(...) 会被
+            -- 表构造器截断成单个字符串，颜色全部丢失（实测就是全灰的原因）。
+            -- disp 也必须单行调用：LuaJIT 下跨行传多个 table 参数会丢参数。
+            display = function()
+              return disp({ { cut(d.group, w_group), d.__tone }, { cut(d.id, w_id), "Function" }, { cut_last(d.name, w_name), "Normal" } })
+            end,
             ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
           }
         end,
@@ -390,7 +418,7 @@ local function pick_deps(all_deps)
       layout_config = {
         width = 0.86,
         height = 0.78,
-        horizontal = { preview_width = 0.40 },
+        horizontal = { preview_width = 0.34 },
       },
       attach_mappings = function(pb, map)
         -- 键位（v4 定稿）：Tab 勾选，Enter 确认完成
@@ -444,7 +472,7 @@ local function flow()
   -- ① 构建工具
   local build = choose(
     { { id = "maven" }, { id = "gradle" } },
-    "① 构建工具　maven → pom.xml+mvnw；gradle → build.gradle.kts+gradlew",
+    "① 构建工具",
     function(o) return o.id == "maven" and "maven  · pom.xml" or "gradle · build.gradle.kts" end
   )
   if not build then return cancel() end
@@ -458,7 +486,7 @@ local function flow()
   -- ③ Java 版本
   local jvers = simple_options(meta.javaVersion)
   table.sort(jvers, function(a, b) return vcmp(a.id, b.id) > 0 end)
-  local jv = choose(jvers, "③ Java 版本　本机 JDK 26，jdtls 要求 17+", function(o)
+  local jv = choose(jvers, "③ Java 版本（jdtls 需 17+）", function(o)
     return o.id == "21" and (o.id .. "  · LTS 推荐") or o.id
   end)
   if not jv then return cancel() end
@@ -470,7 +498,7 @@ local function flow()
   -- ⑤ 打包方式
   local packs = simple_options(meta.packaging)
   if #packs == 0 then packs = { { id = "jar" } } end
-  local pkg = choose(packs, "⑤ 打包方式　jar 内嵌 Tomcat 可执行；war 交外部容器", function(o)
+  local pkg = choose(packs, "⑤ 打包方式", function(o)
     return o.id == "jar" and "jar   · 推荐" or "war"
   end)
   if not pkg then return cancel() end

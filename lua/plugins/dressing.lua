@@ -49,13 +49,18 @@ return {
       },
       nui = {
         position = "50%",
+        relative = "editor",
         border = {
           style = "rounded",
         },
-        renderer = {
-          max_width = 0.72,
-          max_height = 0.6,
-        },
+        -- 注意：dressing 读的是这一层的 max_width / min_height 等键。
+        -- 之前误把它们塞进 renderer={} 里，等于完全没生效，
+        -- 而 nui 默认 min_height=10，于是 2 个选项也撑出 10 行空框。
+        -- height 算法是 max(#lines, min_height)，所以 min_height 必须小。
+        min_width = 46,
+        max_width = 78,
+        min_height = 1,
+        max_height = 16,
         win_options = {
           winblend = 0,
         },
