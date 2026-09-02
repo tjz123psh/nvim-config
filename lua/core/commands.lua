@@ -49,6 +49,16 @@ vim.api.nvim_create_user_command("LspLog", function()
   vim.cmd.edit(vim.fn.fnameescape(vim.lsp.log.get_filename()))
 end, { force = true, desc = "打开 LSP 日志文件" })
 
+-- Spring Boot 项目向导 --------
+
+-- 命令必须在启动时就存在：springboot-nvim 的 spec 是 ft/keys 懒加载，
+-- 只有它的 config 跑过才会有 :SpringBootCreate，导致刚打开 nvim 时
+-- 直接输 :SpringBootCreate 报 Not an editor command（而 <leader>sp 一直可用）。
+-- 在 core 里主动注册一次，让两种入口都即时可用。
+pcall(function()
+  require("core.spring_wizard").setup()
+end)
+
 -- 项目列表 --------
 
 local function read_project_history_sync()
