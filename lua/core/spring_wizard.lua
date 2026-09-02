@@ -230,11 +230,51 @@ local function sanitize_package(s)
   out = out:gsub("^%d", "_")
   return out
 end
+-- 4. UI 桥与视觉主题
+-- ----------------------------------------------------------------------------
 
-----------------------------------------------------------------------------
--- 4. UI 桥：把回调式 vim.ui.* 写成顺序代码
-----------------------------------------------------------------------------
--- dressing 可能同步也可能异步回调，两种顺序都要接住，否则流程会永久卡死
+-- 视觉主题：只 link 到已有语义组，不写死十六进制色，换主题不会花
+-- 对应你提的几点：
+--   描边太淡   → WizBorder 用 Special（catppuccin 紫红），配双线框
+--   深蓝底闷   → 当前行改用 Visual 底色 + backdrop 压暗编辑器，卡片浮出来
+--   文字没层次 → 主键 Function 亮色 / 分组 Identifier / 说明 Comment 压暗
+local HL_GROUPS = {
+  { "WizBorder",     "Special"    },
+  { "WizCursorLine", "Visual"     },
+  { "WizKey",        "Function"   },
+  { "WizBadge",      "Identifier" },
+  { "WizHint",       "Comment"    },
+}
+
+local function define_highlights()
+  for _, g in ipairs(HL_GROUPS) do
+    vim.api.nvim_set_hl(0, g[1], { link = g[2], default = true })
+  end
+end
+
+-- 注意：snacks.picker.win.Config 只接受 input / list / preview 三个键。
+-- 塞 backdrop 进去会炸：config/init.lua 的 fix_keys 对 opts.win 做 pairs 遍历
+-- 并取 win.keys，backdrop 是数字 → "attempt to index local 'win' (a number value)"。
+-- 遮罩效果改由每个窗口自己的 snacks.win.Config.backdrop 提供（那里才合法）。
+local function win_config()
+  return {
+    input = {
+      border = "double",
+      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder,WinSeparator:WizBorder",
+    },
+    list = {
+      border = "double",
+      backdrop = 60,  -- 压暗编辑器背景，卡片浮出来（合法位置：单个窗口内）
+      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder,CursorLine:WizCursorLine,Search:None",
+    },
+    preview = {
+      border = "double",
+      winhighlight = "Normal:NormalFloat,FloatBorder:WizBorder",
+    },
+  }
+end
+
+-- dressing 的回调可能同步也可能异步触发，两种顺序都要接住，否则流程卡死
 local function bridge(caller)
   local co = coroutine.running()
   local arrived, data = false, nil
@@ -249,31 +289,15 @@ local function bridge(caller)
     end
   end
   caller(deliver)
-  -- 回调可能在 yield 之前就已经同步触发（dressing 的 select/input 都会）
   if arrived then return unpack(data) end
   local ret = { coroutine.yield() }
   return unpack(ret)
 end
 
--- 单选：items 是 { id=.., label=.. } 之类，format 决定每行显示
-local function choose(items, prompt, format)
-  if #items == 0 then return nil end
-  return bridge(function(done)
-    vim.ui.select(items, { prompt = prompt, format_item = function(it)
-      local text = format and format(it) or (it.label or it.id or tostring(it))
-      -- dressing 不会把 nui 的 padding 透传出来，想要呼吸感只能自己加空格
-      return "  " .. text .. "  "
-    end }, function(choice)
-      done(choice)
-    end)
-  end)
-end
-
+-- 文本输入仍走 dressing（snacks.input 已关闭，避免抢 noice/dressing 的活）
 local function ask(prompt, default)
   return bridge(function(done)
-    vim.ui.input({ prompt = prompt, default = default }, function(text)
-      done(text)
-    end)
+    vim.ui.input({ prompt = prompt, default = default }, function(text) done(text) end)
   end)
 end
 
@@ -281,222 +305,163 @@ local function cancel()
   vim.notify("已取消，未改动任何文件", vim.log.levels.INFO)
 end
 
+-- 主键亮 + 说明暗，替代之前那种「maven · pom.xml」中点拼接
+local function fmt_hint(item)
+  local d = item.item or item
+  return {
+    { d.id or "", "WizKey" },
+    { "   " },
+    { d.hint or "", "WizHint" },
+  }
+end
 
 ----------------------------------------------------------------------------
--- 5. 依赖多选
+-- 5. 单选与多选（snacks.picker）
 ----------------------------------------------------------------------------
--- 键位设计（v3 修正：Enter 不再是「完成」）：
---   <Enter>   勾选当前项并下移一行（连续挑一串最顺手）
---   <Tab>     勾选/取消当前项（光标不动）
---   <C-s>     完成并进入下一步
---   <Esc>     取消整个向导
--- 顶部固定一行「完成」，回车即可；勾选行由 telescope 原生高亮，
--- 已选数实时显示在右下角，不需要自绘。
+-- 为什么从 dressing+nui / telescope 换成 snacks：
+--   1. dressing+nui 只能整行一个颜色，做不出「主键亮 + 说明暗 + 勾选列」
+--   2. 你装的这个 nui 版本没有 preview、没有模糊搜索（menu/init.lua 仅 377 行）
+--   3. telescope 有原生多选但风格与 nui 割裂，且要手写 borderchars 才勉强像卡片
+--   snacks.picker 的 format 返回 Highlight 数组（逐段着色），勾选列与预览都是内置
+--   而且 <Tab> 默认就绑了 select_and_next（勾选并下移），正是你要的交互
 
-local function pick_deps(all_deps)
-  local ok, pickers = pcall(require, "telescope.pickers")
-  local okf, finders = pcall(require, "telescope.finders")
-  local okc, conf = pcall(require, "telescope.config")
-  local oka, actions = pcall(require, "telescope.actions")
-  local oks, state = pcall(require, "telescope.actions.state")
-  local okp, previewers = pcall(require, "telescope.previewers")
-  local okd, entry_display = pcall(require, "telescope.pickers.entry_display")
-
-  -- 降级：telescope 不可用时逐个 vim.ui.select，菜单里带「完成」项
-  if not (ok and okf and okc and oka and oks and okp and okd) then
-    local picked = {}
-    while true do
-      local menu = { { id = "__done__", name = "完成（已选 " .. #picked .. " 项）" } }
-      for _, d in ipairs(all_deps) do
-        local taken = false
-        for _, id in ipairs(picked) do if id == d.id then taken = true end end
-        if not taken then menu[#menu + 1] = d end
-      end
-      local c = choose(menu, "加入依赖（可搜索）", function(d)
-        if d.id == "__done__" then return d.name end
-        return string.format("%-18s %-26s %s", cut(d.group, 18), cut(d.id, 26), d.name or "")
-      end)
-      if not c or c.id == "__done__" then return picked end
-      picked[#picked + 1] = c.id
-    end
-  end
-
-  -- 列宽按最长 id 自适应，免得长 id 顶歪名称列
-  local w_id = 0
-  for _, d in ipairs(all_deps) do w_id = math.max(w_id, #(d.id or "")) end
-  w_id = math.min(w_id, 44)
-  local w_group = 16  -- 最长缩短组名 Cloud Discovery=15
-
-  -- 名称列宽：整窗宽 × 86% 再扣掉预览窗、组列、id 列、竖线与光标，
-  -- 不够宽就自己截断加省略号，而不是被窗口边框硬切（截图里那种断字很难看）
-  local total_w = math.floor(vim.o.columns * 0.86)
-  local preview_w = math.floor(total_w * 0.36)
-  local w_name = math.max(14, total_w - preview_w - w_group - w_id - 12)
-
-  -- 组色调色板：同组同色，相邻组轮换，列表有层次而不是一片灰
-  local TONES = { "Directory", "Keyword", "String", "Statement", "Type" }
-  local tone_seq, last_group = 0, nil
-  for _, d in ipairs(all_deps) do
-    if d.group ~= last_group then
-      tone_seq = tone_seq + 1
-      last_group = d.group
-    end
-    d.__tone = TONES[((tone_seq - 1) % #TONES) + 1]
-  end
-
-  local disp = entry_display.create({
-    separator = " │ ",   -- 列分隔用竖线，视觉上就是一张表格
-    -- 竖线单独染成暗色：网格线应该比内容淡，跟文字同色会很吵
-    separator_hl = "WinSeparator",    items = {
-      -- 三个 remaining：带 width 的列会在 entry_maker 阶段查 status.layout，
-      -- 那时布局还没建好（实测报 layout nil）；对齐由 cut() 补空格负责
-      { remaining = true },
-      { remaining = true },
-      { remaining = true },
-    },
-  })
-
-  local function preview_lines(d)
-    local lines = {
-      "● " .. d.name,
-      "  分组   " .. d.group,
-      "  id     " .. d.id,
-      string.rep("─", 40),
-      "",
-    }
-    for _, l in ipairs(wrap_text(d.description, 40)) do
-      lines[#lines + 1] = "  " .. l
-    end
-    return lines
-  end
-
-  local dep_preview = previewers.new_buffer_previewer({
-    title = " 说明 ",
-    dynamic_preview_title = true,
-    define_preview = function(self, entry)
-      -- 字段是 self.state.bufnr（buffer_previewer 内部用 get_bufnr/set_bufnr 存取），
-      -- 之前写的 self.previewbufnr 根本不存在，永远 nil：既报
-      -- Invalid 'buf': Expected Lua number，又让预览窗格全空
-      local st = self.state
-      if not st or not st.bufnr or not vim.api.nvim_buf_is_valid(st.bufnr) then
-        return
-      end
-      local d = entry and entry.__dep or {}
-      vim.bo[st.bufnr].modifiable = true
-      vim.api.nvim_buf_set_lines(st.bufnr, 0, -1, false, preview_lines(d))
-    end,
-  })
-
+local function pick_one(items, title, fmt)
   return bridge(function(done)
-    local finished = false
-    local function once(v)
-      if finished then return end
-      finished = true
+    local completed = false
+    local function finish(choice)
+      if completed then return end
+      completed = true
+      done(choice)
+    end
+    Snacks.picker.pick({
+      source = "select",
+      title = title,
+      layout = "select",   -- 高度贴合条目数，不再留大片空底
+      win = win_config(),
+      finder = function()
+        local ret = {}
+        for idx, it in ipairs(items) do
+          ret[#ret + 1] = {
+            idx = idx,
+            item = it,
+            text = (it.id or "") .. " " .. (it.hint or ""),
+          }
+        end
+        return ret
+      end,
+      format = fmt or fmt_hint,
+      filter = {},
+      actions = {
+        confirm = function(picker, pitem)
+          -- 必须先置守卫再 close：否则 close 触发的 on_close 会抢先
+          -- deliver(nil)，协程带着 nil 恢复，流程误判成「用户取消」
+          if completed then return end
+          completed = true
+          local chosen = pitem and pitem.item
+          picker:close()
+          vim.schedule(function() done(chosen) end)
+        end,
+      },
+      on_close = function()
+        if completed then return end
+        completed = true
+        vim.schedule(function() done(nil) end)
+      end,
+    })
+  end)
+end
+
+-- 依赖多选：Tab 勾选（snacks 默认键位）、Enter 确认
+local function pick_deps(all_deps)
+  return bridge(function(done)
+    local completed = false
+    local function finish(v)
+      if completed then return end
+      completed = true
       done(v)
     end
 
-    -- 注意：不要直接用 themes.get_dropdown 当基底——它会把 layout_strategy
-    -- 改成 center，与这里的 horizontal 布局冲突，实测预览窗直接消失。
-    -- 只借它真正好看的那部分：borderchars 把三个浮窗拼成一张无缝卡片
-    -- （prompt 下边框留空格、results 顶角用 ├ ┤ 衔接）。
-    pickers.new({}, {
-      prompt_title = "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成",
-      results_title = false,   -- 结果窗不挂标题，靠边框上的名字区分即可
-      preview_title = " 说明 ",
-      -- 三窗拼接成一张卡片：prompt 底部无边、results 顶角用衔接符
-      border = true,
-      borderchars = {
-        prompt = { "─", "│", " ", "│", "╭", "╮", "│", "│" },
-        results = { "─", "│", "─", "│", "├", "┤", "╯", "╰" },
-        preview = { "─", "│", "─", "│", "╭", "╮", "╯", "╰" },
-      },
-      finder = finders.new_table({
-        results = all_deps,
-        entry_maker = function(d)
-          return {
-            value = d.id,
-            __dep = d,
-            -- 必须是函数！entry_display.resolve 里只有 type(entry.display)=="function"
-            -- 才会拿到第二个返回值 display_highlights；写成 display = disp(...) 会被
-            -- 表构造器截断成单个字符串，颜色全部丢失（实测就是全灰的原因）。
-            -- disp 也必须单行调用：LuaJIT 下跨行传多个 table 参数会丢参数。
-            display = function()
-              return disp({ { cut(d.group, w_group), d.__tone }, { cut(d.id, w_id), "Function" }, { cut_last(d.name, w_name), "Normal" } })
-            end,
-            ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
+    local w_id, w_group = 0, 0
+    for _, d in ipairs(all_deps) do
+      w_id = math.max(w_id, #(d.id or ""))
+      w_group = math.max(w_group, #(d.group or ""))
+    end
+    w_id = math.min(w_id, 44)
+    w_group = math.min(w_group, 18)
+    local w_name = 30
+
+    Snacks.picker.pick({
+      source = "select",
+      title = "⑥ 选择依赖　Tab 勾选　Enter 完成",
+      layout = "default",   -- 列表 + 右侧预览
+      win = WIN,
+      -- 每行都显示勾选框，未选是 ○、已选是 ●（snacks 内置列，不用自绘）
+      formatters = { selected = { show_always = true, unselected = true } },
+      finder = function()
+        local ret = {}
+        for idx, d in ipairs(all_deps) do
+          ret[#ret + 1] = {
+            idx = idx,
+            item = d,
+            text = (d.group or "") .. " " .. (d.id or "") .. " " .. (d.name or ""),
           }
-        end,
-      }),
-      sorter = conf.values.generic_sorter({}),
-      previewer = dep_preview,
-      selection_caret = "❯ ",  -- 光标行前缀，替代默认的空白
-      multi_icon = "  ",       -- 勾选行前缀保持两空格，避免与原生高亮叠加错位
-      layout_config = {
-        width = 0.84,
-        height = 0.80,
-        prompt_position = "top",  -- 关键：默认 bottom 像命令行，top 才是标题感
-        horizontal = { preview_width = 0.36 },
-      },
-      entry_prefix = "  ",        -- 左右留白，避免文字贴边框
-      attach_mappings = function(pb, map)
-        -- 键位（v4 定稿）：Tab 勾选，Enter 确认完成
-        -- 只用 map() 注册本 picker；绝不替换 actions 全局表，
-        -- 否则 :replace 会泄漏去别的 picker，替换体里再调自身还递归
-        local function finish()
-          -- 注意：action_state.get_multiple_selected 在本机 telescope 版本不存在（实测 nil），
-          -- 多选要问 picker 自己：Picker:get_multi_selection()。用错会静默丢掉全部勾选。
-          local picker = state.get_current_picker(pb)
-          local got = {}
-          if picker then
-            for _, e in ipairs(picker:get_multi_selection() or {}) do
-              if e.value then got[#got + 1] = e.value end
-            end
-          end
-          actions.close(pb)
-          once(got)
         end
-        local function cancel_key()
-          actions.close(pb)
-          once(nil)
-        end
-        -- 勾选数实时写进 prompt 边框标题；telescope 右下角那个 204/204 是
-        -- 「匹配/总数」不是已选数，容易误读，所以自己在标题上给明确反馈
-        local function refresh_count_title()
-          local picker = state.get_current_picker(pb)
-          local border = picker and picker.layout and picker.layout.prompt
-            and picker.layout.prompt.border
-          if not border or not border.change_title then return end
-          local count = 0
-          for _ in ipairs(picker:get_multi_selection() or {}) do count = count + 1 end
-          local label = count > 0
-            and ("⑥ 选择依赖　已选 " .. count .. " 项　<Tab> 勾选  <Enter> 完成")
-            or "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成"
-          border:change_title(label)
-        end
-        local function toggle_key()
-          actions.toggle_selection(pb)
-          refresh_count_title()
-        end
-        map("i", "<Tab>", toggle_key)
-        map("n", "<Tab>", toggle_key)
-        map("i", "<Enter>", finish)
-        map("n", "<Enter>", finish)
-        map("i", "<C-s>", finish)
-        map("n", "<C-s>", finish)
-        map("i", "<Esc>", cancel_key)
-        map("n", "<Esc>", cancel_key)
-        map("i", "<C-c>", cancel_key)
+        return ret
+      end,
+      format = function(item)
+        local d = item.item or item
+        return {
+          { cut(d.id, w_id), "WizKey" },
+          { "  " },
+          { cut(d.group, w_group), "WizBadge" },
+          { "  " },
+          { cut_last(d.name, w_name), "WizHint" },
+        }
+      end,
+      preview = function(ctx)
+        local d = ctx.item and ctx.item.item
+        if not d then return false end
+        local lines = {
+          "名称   " .. d.name,
+          "分组   " .. d.group,
+          "id     " .. d.id,
+          string.rep("─", 44),
+          "",
+        }
+        for _, l in ipairs(wrap_text(d.description, 44)) do lines[#lines + 1] = l end
+        lines[#lines + 1] = ""
+        
+        pcall(function() vim.bo[ctx.buf].modifiable = true end)
+        vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, lines)
         return true
       end,
-    }):find()
+      filter = {},
+      actions = {
+        confirm = function(picker)
+          if completed then return end
+          completed = true
+          local ids = {}
+          for _, it in ipairs(picker.list.selected or {}) do
+            if it.item and it.item.id then ids[#ids + 1] = it.item.id end
+          end
+          picker:close()
+          vim.schedule(function() done(ids) end)
+        end,
+      },
+      on_close = function()
+        if completed then return end
+        completed = true
+        vim.schedule(function() done(nil) end)
+      end,
+    })
   end)
 end
+
 ----------------------------------------------------------------------------
 -- 6. 主流程（字段顺序对齐 IDEA New Project）
 ----------------------------------------------------------------------------
 local function find_main_class(dir)
-  local pats = { "src/main/java/**/*Application.java", "src/main/java/**/*.java" }
-  for _, pat in ipairs(pats) do
+  for _, pat in ipairs({ "src/main/java/**/*Application.java", "src/main/java/**/*.java" }) do
     local found = vim.fn.globpath(dir, pat, true, true)
     if found[1] then return found[1] end
   end
@@ -504,53 +469,65 @@ local function find_main_class(dir)
 end
 
 local function flow()
-  vim.notify("Spring Boot 向导：共 11 步，任意一步 Esc 取消，最后确认后生成。", vim.log.levels.INFO)
+  define_highlights()
   local meta, err = load_meta()
   if not meta then
     vim.notify(err, vim.log.levels.ERROR)
     return
   end
 
-  -- ① 构建工具
-  local build = choose(
-    { { id = "maven" }, { id = "gradle" } },
-    "① 构建工具",
-    function(o) return o.id == "maven" and "maven  · pom.xml" or "gradle · build.gradle.kts" end
-  )
+  local build = pick_one({
+    { id = "maven",  hint = "pom.xml + mvnw" },
+    { id = "gradle", hint = "build.gradle.kts + gradlew" },
+  }, "① 构建工具")
   if not build then return cancel() end
 
-  -- ② 语言
   local langs = simple_options(meta.language)
   if #langs == 0 then langs = { { id = "java" } } end
-  local lang = choose(langs, "② 语言", function(o) return o.id end)
+  local lang_items = {}
+  for i, l in ipairs(langs) do
+    lang_items[i] = { id = l.id, hint = l.id == "java" and "推荐" or "" }
+  end
+  local lang = pick_one(lang_items, "② 语言")
   if not lang then return cancel() end
 
-  -- ③ Java 版本
   local jvers = simple_options(meta.javaVersion)
   table.sort(jvers, function(a, b) return vcmp(a.id, b.id) > 0 end)
-  local jv = choose(jvers, "③ Java 版本（jdtls 需 17+）", function(o)
-    return o.id == "21" and (o.id .. "  · LTS 推荐") or o.id
-  end)
+  local jv_items = {}
+  for i, v in ipairs(jvers) do
+    local hint = ""
+    if v.id == "21" then hint = "LTS，推荐" elseif v.id == "17" then hint = "最低可用" end
+    jv_items[i] = { id = v.id, hint = hint }
+  end
+  local jv = pick_one(jv_items, "③ Java 版本　本机 JDK 26，jdtls 要求 17+")
   if not jv then return cancel() end
 
-  -- ④ Spring Boot 版本
-  local bv = choose(boot_options(meta), "④ Spring Boot 版本", function(o) return o.label end)
+  local boots = boot_options(meta)
+  local boot_items = {}
+  for i, b in ipairs(boots) do
+    local hint = "正式版"
+    if b.pre then hint = "预发布，可能拉不到" elseif i == 1 then hint = "最新正式版" end
+    boot_items[i] = { id = b.real, hint = hint }
+  end
+  local bv = pick_one(boot_items, "④ Spring Boot 版本")
   if not bv then return cancel() end
 
-  -- ⑤ 打包方式
   local packs = simple_options(meta.packaging)
   if #packs == 0 then packs = { { id = "jar" } } end
-  local pkg = choose(packs, "⑤ 打包方式", function(o)
-    return o.id == "jar" and "jar   · 推荐" or "war"
-  end)
+  local pack_items = {}
+  for i, v in ipairs(packs) do
+    pack_items[i] = {
+      id = v.id,
+      hint = v.id == "jar" and "可执行 jar，内嵌 Tomcat" or "部署到外部容器",
+    }
+  end
+  local pkg = pick_one(pack_items, "⑤ 打包方式")
   if not pkg then return cancel() end
 
-  -- ⑥ 依赖（多选）
   local all_deps = dependency_options(meta)
   local deps = pick_deps(all_deps)
   if not deps then return cancel() end
 
-  -- ⑦-⑪ 标识与位置
   local group = ask("⑦ Group ID（组织反写域名）: ", "com.example")
   if not group or group == "" then return cancel() end
   local artifact = ask("⑧ Artifact ID（小写，建议无连字符）: ", "demo")
@@ -566,48 +543,41 @@ local function flow()
     return
   end
 
-  -- 组装 spring init 参数
   local argv = {
     "spring", "init",
-    "--build=" .. build.id
-    , "--language=" .. lang.id
-    , "--java-version=" .. jv.id
-    , "--boot-version=" .. bv.real
-    , "--packaging=" .. pkg.id
-    , "--group-id=" .. group
-    , "--artifact-id=" .. artifact
-    , "--name=" .. name
-    , "--package-name=" .. pkgname
+    "--build=" .. build.id,
+    "--language=" .. lang.id,
+    "--java-version=" .. jv.id,
+    "--boot-version=" .. bv.id,
+    "--packaging=" .. pkg.id,
+    "--group-id=" .. group,
+    "--artifact-id=" .. artifact,
+    "--name=" .. name,
+    "--package-name=" .. pkgname,
   }
   if #deps > 0 then
     argv[#argv + 1] = "--dependencies=" .. table.concat(deps, ",")
   end
   argv[#argv + 1] = name
 
-  -- 摘要：把选中的依赖 id 换成 名字@组，方便一眼核对
   local id2name = {}
   for _, d in ipairs(all_deps) do id2name[d.id] = d.name end
   local dep_names = {}
   for _, id in ipairs(deps) do dep_names[#dep_names + 1] = id2name[id] or id end
-  local summary = table.concat({
-    "  构建 " .. build.id
-    , "  语言 " .. lang.id
-    , "  Java " .. jv.id
-    , "  Boot " .. bv.real
-    , "  打包 " .. pkg.id
-    , "  依赖 " .. (#dep_names > 0 and (#dep_names .. " 个：" .. table.concat(dep_names, "、")) or "无")
-  }, UI.sep)
 
-  local preview = table.concat(argv, " ") .. "　[目标: " .. parent .. "/" .. name .. "]"
-  local go = choose(
-    { { id = "go" }, { id = "redo" }, { id = "no" } },
-    "确认创建？　" .. summary .. "　共 " .. #argv .. " 个参数",
-    function(o)
-      if o.id == "go" then return "✅ 确认创建" end
-      if o.id == "redo" then return "↩ 返回重选" end
-      return "✕ 取消"
-    end
-  )
+  local summary = table.concat({
+    "构建 " .. build.id,
+    "Java " .. jv.id,
+    "Boot " .. bv.id,
+    "打包 " .. pkg.id,
+    "依赖 " .. #dep_names .. " 个",
+  }, "   ")
+
+  local go = pick_one({
+    { id = "go",   hint = parent .. "/" .. name },
+    { id = "redo", hint = "重新走一遍向导" },
+    { id = "no",   hint = "不留任何文件" },
+  }, "确认创建　" .. summary)
   if not go or go.id == "no" then return cancel() end
   if go.id == "redo" then
     vim.schedule(function() M.create() end)
@@ -630,22 +600,29 @@ local function flow()
   vim.fn.chdir(dir)
   local main = find_main_class(dir)
   if main then vim.cmd("edit " .. vim.fn.fnameescape(main)) end
-  vim.notify("已创建 " .. dir .. "　jdtls 正在导入依赖（首次 10~60 秒），稍后用 :LspInfo 确认", vim.log.levels.INFO)
+  vim.notify("已创建 " .. dir .. "　jdtls 正在导入依赖（首次 10~60 秒），稍后 :LspInfo 确认", vim.log.levels.INFO)
 end
 
 function M.create()
-  local ok, err = coroutine.resume(coroutine.create(flow))
+  define_highlights()
+  local ok, rerr = coroutine.resume(coroutine.create(flow))
   if not ok then
-    vim.notify("向导内部错误：" .. tostring(err), vim.log.levels.ERROR)
+    vim.notify("向导内部错误：" .. tostring(rerr), vim.log.levels.ERROR)
   end
 end
 
 function M.setup()
+  define_highlights()
+  -- 我们的组是 link 到语义组的，换主题后 link 关系仍在，但 default=true 的
+  -- 定义会被新主题的清空逻辑覆盖，所以换主题时补一次
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    desc = "重建 Spring Boot 向导的派生高亮组",
+    callback = define_highlights,
+  })
   if vim.fn.exists(":SpringBootCreate") == 2 then return end
   vim.api.nvim_create_user_command("SpringBootCreate", function()
     M.create()
-  end, { desc = "Spring Boot 项目向导（可搜索选择；修正 Boot 4 版本号与多选键位）" })
+  end, { desc = "Spring Boot 项目向导（snacks.picker 版：逐段着色 + 勾选列 + 预览）" })
 end
 
 return M
-
