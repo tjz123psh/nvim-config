@@ -395,12 +395,21 @@ local function pick_deps(all_deps)
       done(v)
     end
 
+    -- 注意：不要直接用 themes.get_dropdown 当基底——它会把 layout_strategy
+    -- 改成 center，与这里的 horizontal 布局冲突，实测预览窗直接消失。
+    -- 只借它真正好看的那部分：borderchars 把三个浮窗拼成一张无缝卡片
+    -- （prompt 下边框留空格、results 顶角用 ├ ┤ 衔接）。
     pickers.new({}, {
       prompt_title = "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成",
-      -- 让 telescope 长得跟 nui/noice 同一套：标题嵌在顶部边框、
-      -- 结果与预览窗各有名字、条目留左右内边距
-      results_title = " 依赖　分组 │ id │ 名称 ",
+      results_title = false,   -- 结果窗不挂标题，靠边框上的名字区分即可
       preview_title = " 说明 ",
+      -- 三窗拼接成一张卡片：prompt 底部无边、results 顶角用衔接符
+      border = true,
+      borderchars = {
+        prompt = { "─", "│", " ", "│", "╭", "╮", "│", "│" },
+        results = { "─", "│", "─", "│", "├", "┤", "╯", "╰" },
+        preview = { "─", "│", "─", "│", "╭", "╮", "╯", "╰" },
+      },
       finder = finders.new_table({
         results = all_deps,
         entry_maker = function(d)
