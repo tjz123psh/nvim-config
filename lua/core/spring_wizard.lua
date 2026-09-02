@@ -78,7 +78,7 @@ local function boot_options(meta)
         id = v.id,
         real = real,
         pre = pre,
-        label = pre and (real .. "   （预发布，可能拉不到）") or real,
+        label = pre and (real .. "  · 预发布") or (real .. "  · 正式版"),
       }
     end
   end
@@ -89,7 +89,7 @@ local function boot_options(meta)
     return vcmp(a.real, b.real) > 0
   end)
   if #out > 0 and not out[1].pre then
-    out[1].label = out[1].real .. "   （最新正式版）"
+    out[1].label = out[1].real .. "  · 正式版 最新"
   end
   return out
 end
@@ -327,7 +327,8 @@ local function pick_deps(all_deps)
     })
 
     local dep_preview = previewers.new_buffer_previewer({
-      title = " 说明 ",
+      title = " 依赖说明 ",
+      dynamic_preview_title = true,
       define_preview = function(self, entry)
         local d = entry.__dep or {}
         local lines = {
@@ -344,14 +345,14 @@ local function pick_deps(all_deps)
     })
 
     pickers.new({}, {
-      prompt_title = "选择依赖　<Tab> 加入　<CR> 完成",
+      prompt_title = "⑥ 依赖　分组 │ id │ 名称　　<Tab> 加入　<CR> 完成",
       finder = finders.new_table({
         results = all_deps,
         entry_maker = function(d)
           return {
             value = d.id,
             __dep = d,
-            display = disp({ { cut(d.group, w_group), "Comment" }, { d.id, "Function" }, d.name }),
+            display = disp({ { cut(d.group, w_group), "Directory" }, { d.id, "Function" }, { d.name, "Normal" } }),
             -- ordinal 里带上组名，于是打 sql / ai / messaging 就能按组过滤
             ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
           }
@@ -363,9 +364,16 @@ local function pick_deps(all_deps)
       -- 写成 layout_config.previewer 会被 telescope 直接拒绝（实测报 Unsupported key）
       layout_config = { horizontal = { preview_width = 0.42 } },
       attach_mappings = function(pb, map)
+        -- 只用 map() 注册到本 picker，绝不碰 actions.xxx:replace()。
+        -- 两个原因（都是这次真机踩出来的）：
+        --  a) :replace 改的是 telescope 全局 actions 表，会永久泄漏给
+        --     其它所有 picker（:Telescope files 等）。
+        --  b) 在 close 的替换体里再调 actions.close 就是自己调自己，
+        --     按两次 Esc 立刻 stack overflow；而 once 守卫被它先置位，
+        --     导致之后按 Enter 静默无反应。
         map("i", "<Tab>", actions.toggle_selection)
         map("n", "<Tab>", actions.toggle_selection)
-        actions.select_default:replace(function()
+        local function finish_selected()
           local picks = state.get_multiple_selected()
           if #picks == 0 then
             local one = state.get_selected_entry()
@@ -373,17 +381,22 @@ local function pick_deps(all_deps)
               picks = { one }
             end
           end
-          actions.close(pb)
           local got = {}
           for _, e in ipairs(picks) do
             got[#got + 1] = e.value
           end
+          actions.close(pb)
           once(got)
-        end)
-        actions.close:replace(function()
+        end
+        local function finish_cancel()
           actions.close(pb)
           once(nil)
-        end)
+        end
+        map("i", "<CR>", finish_selected)
+        map("n", "<CR>", finish_selected)
+        map("i", "<Esc>", finish_cancel)
+        map("n", "<Esc>", finish_cancel)
+        map("i", "<C-c>", finish_cancel)
         return true
       end,
     }):find()
@@ -418,7 +431,7 @@ local function flow()
   end
 
   local build = choose({ { id = "maven" }, { id = "gradle" } }, "① 构建工具", function(o)
-    return o.id == "maven" and "maven   （pom.xml + mvnw）" or "gradle   （build.gradle.kts + gradlew）"
+    return o.id == "maven" and "maven  · pom.xml" or "gradle · build.gradle.kts"
   end)
   if not build then
     return cancel()
@@ -439,9 +452,9 @@ local function flow()
   table.sort(jvers, function(a, b)
     return vcmp(a.id, b.id) > 0
   end)
-  local jv = choose(jvers, "③ Java 版本（本机 JDK 26；jdtls 要求 17+）", function(o)
+  local jv = choose(jvers, "③ Java 版本　本机 JDK 26，jdtls 要求 17+", function(o)
     if o.id == "21" then
-      return o.id .. "   （LTS，推荐）"
+      return o.id .. "  · LTS 推荐"
     end
     return o.id
   end)
@@ -460,11 +473,11 @@ local function flow()
   if #packs == 0 then
     packs = { { id = "jar" } }
   end
-  local pkg = choose(packs, "⑤ 打包方式", function(o)
+  local pkg = choose(packs, "⑤ 打包方式　jar 内嵌 Tomcat 可执行；war 交外部容器", function(o)
     if o.id == "jar" then
-      return "jar   （可执行 jar，内嵌 Tomcat，推荐）"
+      return "jar   · 推荐"
     end
-    return "war   （部署到外部容器）"
+    return "war"
   end)
   if not pkg then
     return cancel()
