@@ -426,9 +426,15 @@ local function pick_deps(all_deps)
         -- 只用 map() 注册本 picker；绝不替换 actions 全局表，
         -- 否则 :replace 会泄漏去别的 picker，替换体里再调自身还递归
         local function finish()
-          local picks = state.get_multiple_selected()
+          -- 注意：action_state.get_multiple_selected 在本机 telescope 版本不存在（实测 nil），
+          -- 多选要问 picker 自己：Picker:get_multi_selection()。用错会静默丢掉全部勾选。
+          local picker = state.get_current_picker(pb)
           local got = {}
-          for _, e in ipairs(picks) do got[#got + 1] = e.value end
+          if picker then
+            for _, e in ipairs(picker:get_multi_selection() or {}) do
+              if e.value then got[#got + 1] = e.value end
+            end
+          end
           actions.close(pb)
           once(got)
         end
@@ -436,8 +442,26 @@ local function pick_deps(all_deps)
           actions.close(pb)
           once(nil)
         end
-        map("i", "<Tab>", actions.toggle_selection)
-        map("n", "<Tab>", actions.toggle_selection)
+        -- 勾选数实时写进 prompt 边框标题；telescope 右下角那个 204/204 是
+        -- 「匹配/总数」不是已选数，容易误读，所以自己在标题上给明确反馈
+        local function refresh_count_title()
+          local picker = state.get_current_picker(pb)
+          local border = picker and picker.layout and picker.layout.prompt
+            and picker.layout.prompt.border
+          if not border or not border.change_title then return end
+          local count = 0
+          for _ in ipairs(picker:get_multi_selection() or {}) do count = count + 1 end
+          local label = count > 0
+            and ("⑥ 选择依赖　已选 " .. count .. " 项　<Tab> 勾选  <Enter> 完成")
+            or "⑥ 选择依赖　<Tab> 勾选  <Enter> 完成"
+          border:change_title(label)
+        end
+        local function toggle_key()
+          actions.toggle_selection(pb)
+          refresh_count_title()
+        end
+        map("i", "<Tab>", toggle_key)
+        map("n", "<Tab>", toggle_key)
         map("i", "<Enter>", finish)
         map("n", "<Enter>", finish)
         map("i", "<C-s>", finish)
