@@ -343,8 +343,9 @@ local function pick_deps(all_deps)
   end
 
   local disp = entry_display.create({
-    separator = " │ ",  -- 列分隔用竖线，视觉上就是一张表格
-    items = {
+    separator = " │ ",   -- 列分隔用竖线，视觉上就是一张表格
+    -- 竖线单独染成暗色：网格线应该比内容淡，跟文字同色会很吵
+    separator_hl = "WinSeparator",    items = {
       -- 三个 remaining：带 width 的列会在 entry_maker 阶段查 status.layout，
       -- 那时布局还没建好（实测报 layout nil）；对齐由 cut() 补空格负责
       { remaining = true },
