@@ -104,24 +104,68 @@ local function simple_options(node)
   return out
 end
 
+-- start.spring.io 的依赖树本来就是两层：分组 → 依赖（实测 23 组 / 204 项，
+-- 且 204 项全部带 description）。之前这里递归拍平，把组名和 description 丢了，
+-- 列表既没法分组也没法做预览窗格。现在两样都保留。
+-- 组名太长会被列宽截成 "VMware Tanzu Sp~" 这种，给几个啰嗦的起短名
+local GROUP_SHORT = {
+  ['VMware Tanzu Spring Enterprise Extensions'] = 'Tanzu Enterprise',
+  ['VMware Tanzu Application Service'] = 'Tanzu AppService',
+  ['VMware Tanzu Spring SDK'] = 'Tanzu SDK',
+  ['Spring Cloud Circuit Breaker'] = 'Cloud Breaker',
+  ['Spring Cloud Discovery'] = 'Cloud Discovery',
+  ['Spring Cloud Config'] = 'Cloud Config',
+  ['Spring Cloud Messaging'] = 'Cloud Messaging',
+  ['Spring Cloud'] = 'Cloud',
+  ['Developer Tools'] = 'Dev Tools',
+  ['Template Engines'] = 'Templates',
+}
+
+local function short_group(name)
+  return GROUP_SHORT[name] or name
+end
+
 local function dependency_options(meta)
   local out, seen = {}, {}
-  local function walk(node)
+
+  local function try_add(node, group)
     if type(node) ~= "table" then
       return
     end
+    -- 分组节点只有 name 没有 id，所以这个判断只会收进真正的依赖
     if type(node.id) == "string" and type(node.name) == "string" and not seen[node.id] then
       seen[node.id] = true
-      out[#out + 1] = { id = node.id, name = node.name }
+      out[#out + 1] = {
+        id = node.id,
+        name = node.name,
+        group = short_group(group or "Other"),
+        description = type(node.description) == "string" and node.description or "",
+      }
     end
+  end
+
+  local function walk(node, group)
+    if type(node) ~= "table" then
+      return
+    end
+    local g = group
+    if type(node.name) == "string" and type(node.values) == "table" then
+      g = node.name -- 这是一个分组节点，它的 name 就是组名
+    end
+    try_add(node, group)
     for _, v in pairs(node) do
       if type(v) == "table" then
-        walk(v)
+        walk(v, g)
       end
     end
   end
-  walk(meta.dependencies)
+
+  walk(meta.dependencies, nil)
+  -- 先按组、组内按 id，视觉上天然聚在一起
   table.sort(out, function(a, b)
+    if a.group ~= b.group then
+      return a.group < b.group
+    end
     return a.id < b.id
   end)
   return out
@@ -178,14 +222,50 @@ end
 ------------------------------------------------------------------
 -- 依赖多选：优先 telescope（可搜索 + <Tab> 多选），降级为逐个 select
 ------------------------------------------------------------------
+-- 按显示宽度截断（这几个字段都是 ASCII，用字节长度即可）
+local function cut(text, width)
+  text = text or ""
+  if #text <= width then
+    return text .. string.rep(" ", width - #text)
+  end
+  if width <= 1 then
+    return string.sub(text, 1, width)
+  end
+  return string.sub(text, 1, width - 1) .. "~"
+end
+
+-- 按词换行，供预览窗格显示 description
+local function wrap_text(text, width)
+  local lines, cur = {}, ""
+  for word in tostring(text or ""):gmatch("%S+") do
+    if cur == "" then
+      cur = word
+    elseif #cur + 1 + #word <= width then
+      cur = cur .. " " .. word
+    else
+      lines[#lines + 1] = cur
+      cur = word
+    end
+  end
+  if cur ~= "" then
+    lines[#lines + 1] = cur
+  end
+  if #lines == 0 then
+    lines[1] = ""
+  end
+  return lines
+end
+
 local function pick_deps(all_deps)
   local ok, pickers = pcall(require, "telescope.pickers")
   local okf, finders = pcall(require, "telescope.finders")
   local okc, conf = pcall(require, "telescope.config")
   local oka, actions = pcall(require, "telescope.actions")
   local oks, state = pcall(require, "telescope.actions.state")
+  local okp, previewers = pcall(require, "telescope.previewers")
+  local okd, entry_display = pcall(require, "telescope.pickers.entry_display")
 
-  if not (ok and okf and okc and oka and oks) then
+  if not (ok and okf and okc and oka and oks and okp and okd) then
     local picked = {}
     while true do
       local menu = { { id = "__done__", name = "完成（已选 " .. #picked .. " 项）" } }
@@ -204,7 +284,7 @@ local function pick_deps(all_deps)
         if d.id == "__done__" then
           return d.name
         end
-        return string.format("%-22s %s", d.id, d.name)
+        return string.format("%-18s %-26s %s", cut(d.group, 18), cut(d.id, 26), d.name or "")
       end)
       if not c or c.id == "__done__" then
         return picked
@@ -222,6 +302,47 @@ local function pick_deps(all_deps)
       finished = true
       done(v)
     end
+    -- 列宽自适应：原先写死 %-22s，而实测最长 id 有 42 字符
+    -- （spring-ai-chat-memory-repository-in-memory），会直接把名称列顶歪
+    local w_id = 0
+    for _, d in ipairs(all_deps) do
+      w_id = math.max(w_id, #(d.id or ""))
+    end
+    w_id = math.min(w_id, 44)
+    local w_group = 18
+    -- entry_display.create{ items = ... } 生成列生成器，调用时传「表的表」
+    -- （{ 字符串, 高亮组 }），不是可变参数。
+    --
+    -- 三列全部用 remaining 而不是 width：带 width 的列会在 entry_maker 阶段去
+    -- 查 status.layout.results.winid 来算宽度，而那时窗口布局还没建好，
+    -- 实测报 entry_display.lua:76 attempt to index field layout (a nil value)。
+    -- 对齐本来就由上面的 cut() 用空格补齐完成，所以这里只需要高亮。
+    local disp = entry_display.create({
+      separator = " ",
+      items = {
+        { remaining = true },
+        { remaining = true },
+        { remaining = true },
+      },
+    })
+
+    local dep_preview = previewers.new_buffer_previewer({
+      title = " 说明 ",
+      define_preview = function(self, entry)
+        local d = entry.__dep or {}
+        local lines = {
+          "分组   " .. (d.group or "-"),
+          "id     " .. (d.id or "-"),
+          "名称   " .. (d.name or "-"),
+          "",
+        }
+        for _, l in ipairs(wrap_text(d.description, 44)) do
+          lines[#lines + 1] = l
+        end
+        vim.api.nvim_buf_set_lines(self.previewbufnr, 0, -1, false, lines)
+      end,
+    })
+
     pickers.new({}, {
       prompt_title = "选择依赖　<Tab> 加入　<CR> 完成",
       finder = finders.new_table({
@@ -229,12 +350,18 @@ local function pick_deps(all_deps)
         entry_maker = function(d)
           return {
             value = d.id,
-            display = string.format("%-22s %s", d.id, d.name),
-            ordinal = d.id .. " " .. d.name,
+            __dep = d,
+            display = disp({ { cut(d.group, w_group), "Comment" }, { d.id, "Function" }, d.name }),
+            -- ordinal 里带上组名，于是打 sql / ai / messaging 就能按组过滤
+            ordinal = (d.group or "") .. " " .. d.id .. " " .. (d.name or ""),
           }
         end,
       }),
       sorter = conf.values.generic_sorter({}),
+      previewer = dep_preview,
+      -- 预览窗格宽度：horizontal 策略下合法的键是 preview_width，
+      -- 写成 layout_config.previewer 会被 telescope 直接拒绝（实测报 Unsupported key）
+      layout_config = { horizontal = { preview_width = 0.42 } },
       attach_mappings = function(pb, map)
         map("i", "<Tab>", actions.toggle_selection)
         map("n", "<Tab>", actions.toggle_selection)
