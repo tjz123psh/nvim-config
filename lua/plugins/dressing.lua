@@ -37,7 +37,8 @@ return {
     },
     select = {
       enabled = true,
-      backend = { "builtin", "nui" }, -- 优先使用内置浮动选择器
+      -- nui 观感更现代（居中、圆角、无编号），builtin 兜底（若 nui 报错）
+      backend = { "nui", "builtin" },
       builtin = {
         border = "rounded",
         relative = "editor",
@@ -50,6 +51,10 @@ return {
         position = "50%",
         border = {
           style = "rounded",
+        },
+        renderer = {
+          max_width = 0.72,
+          max_height = 0.6,
         },
         win_options = {
           winblend = 0,
