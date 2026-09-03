@@ -31,8 +31,9 @@ return {
         wrap = false,
         list = true,
         listchars = "precedes:…,extends:…",
-        -- 使用与 noice 相同的高亮组
-        winhighlight = "Normal:Normal,FloatBorder:FloatBorder",
+        -- 与 Spring 向导 / noice 通知同款：实底 #1E1E2E + 粉圆角边
+        -- （Wiz* 组由 core/spring_wizard.lua 在启动时定义，ColorScheme 自动重建）
+        winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle",
       },
     },
     select = {
@@ -63,8 +64,8 @@ return {
         max_height = 18,
         win_options = {
           winblend = 0,
-          -- 选中行用弹出菜单那套紫色，跟 noice/telescope 的观感一致
-          winhighlight = "Normal:NormalFloat,FloatBorder:FloatBorder,CursorLine:PmenuSel",
+          -- 与向导/noice 统一：实底深卡 + 粉边，选中行 mauve
+          winhighlight = "Normal:WizBg,FloatBorder:WizBorder,CursorLine:WizCursorLine",
         },
       },
     },

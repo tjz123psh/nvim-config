@@ -1,19 +1,17 @@
 -- ============================================================================
--- Spring Boot 项目向导（v3 重构）
+-- Spring Boot 项目向导（v6 单卡片 · noice 粉系）
 -- ============================================================================
--- 与 IDEA New Project 对话框对齐的 11 步向导，全部基于本机已有依赖：
---   dressing.nvim  渲染 vim.ui.select / vim.ui.input 的浮窗
---   telescope      依赖多选列表（原生多选高亮 + 右下角已选计数）
---   nui.nvim       选择浮窗的另一种后端（dressing 里切换）
+-- 与 IDEA New Project 对话框对齐的 11 步向导：
+--   snacks.picker  全部选择步骤（自绘 90 列单卡片：input + list + 底部说明行）
+--   dressing.nvim  文本输入（LSP 重命名等共用同款粉卡，组定义见 SNACKS_HL）
 --
--- v3 变更（相对 v2）：
---   1. 键位语义修正确认：Enter 从「完成」改为「勾选当前项并下移一行」，
---      完成的动作显式化（<C-s> 或选中顶部「完成」行），避免误触完成。
---   2. 不再 mutate telescope 全局 actions 表（:replace 会泄漏给所有 picker），
---      只用 attach_mappings 的 map() 注册到当前 picker。
---   3. 统一视觉风格：every 提示带步骤号、简短的「值 · 提示」条目、
---      选中项靠 telescope 原生高亮 + 右下角计数反馈，不做自研 ✓ 渲染。
---   4. 代码按「主题/元数据/工具/UI桥/多选/流程」分节。
+-- v6 变更（相对 v5，按用户 noice 截图推倒重构）：
+--   1. 弃用 default/select 预设，自绘 vertical box 布局：
+--      边框画在 box 层；winhighlight 走 snacks 链接链的基座组
+--      （SnacksPickerBorder/Title/…），启动时定义实色即可全程截胡
+--   2. 右侧预览 → 底部 1 行说明（preview 窗 1 高 + virt_text 分段着色）
+--   3. 单选步行只显示 id，hint 挪到底部行；确认步底部行 = 摘要 → 路径
+--   4. winblend=0 全实心；配色直写 catppuccin-mocha 十六进制
 --
 -- 放在 core/ 而非 plugins/：core/lazy.lua 用 { import = "plugins" }，
 -- lazy 会把 plugins/ 下每个 .lua 当 spec 递归加载，本文件返回的是模块。
@@ -206,24 +204,6 @@ local function cut_last(text, width)
   return string.sub(text, 1, width - 1) .. "\226\128\166"
 end
 
--- 按词换行，供预览窗格显示 description
-local function wrap_text(text, width)
-  local lines, cur = {}, ""
-  for word in tostring(text or ""):gmatch("%S+") do
-    if cur == "" then
-      cur = word
-    elseif #cur + 1 + #word <= width then
-      cur = cur .. " " .. word
-    else
-      lines[#lines + 1] = cur
-      cur = word
-    end
-  end
-  if cur ~= "" then lines[#lines + 1] = cur end
-  if #lines == 0 then lines[1] = "" end
-  return lines
-end
-
 -- 包名里非法字符替换为下划线（实测 hyphen 会被 CLI 自动转 _，这里再兜底）
 local function sanitize_package(s)
   local out = (s:gsub("[^%w%.]", "_"))
@@ -265,14 +245,27 @@ local HL_DEFS = {
   { "WizMagenta",   { fg = NEON.magenta, bold = true } },
 }
 
--- snacks 用 default=true 注册的组，这里后注册（无 default）覆盖成霓虹色
+-- 根治「边框一直是主题蓝」：snacks 的 winhighlight 不用我们给的字符串
+-- （init_layout 会 force 覆盖），而是用 winhl() 给每个窗口生成链接组：
+--   FloatBorder → SnacksPickerListBorder → SnacksPickerBorder → FloatBorder
+-- 这些链接全部以 default=true 注册。所以只要启动时先把「基座组」定义成
+-- 非 default 的实色，snacks 的默认注册就永远盖不掉我们，整条链变色。
 local SNACKS_HL = {
-  { "SnacksPickerTotals",     { fg = NEON.amber, bold = true } },   -- 204/204 计数器
-  { "SnacksPickerPrompt",     { fg = NEON.border, bold = true } },  -- >> 提示符
-  { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } }, -- 过滤匹配词
-  { "SnacksPickerSelected",   { fg = NEON.border, bold = true } },  -- ▣ 已选
-  { "SnacksPickerUnselected", { fg = NEON.dim } },                  -- □ 未选
-  { "SnacksPickerInput",      { fg = NEON.white } },
+  { "SnacksPicker",           { bg = NEON.bg, fg = NEON.white } },  -- NormalFloat 基座（三窗共用）
+  { "SnacksPickerBorder",     { fg = NEON.border } },               -- 所有窗口边框
+  { "SnacksPickerTitle",      { fg = NEON.border, bold = true } }, -- 窗口标题
+  { "SnacksPickerCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
+  -- list 的当前行 snacks 默认 link 到 Visual（灰杠），直接定义叶子组截胡
+  { "SnacksPickerListCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
+  { "SnacksPickerFooter",     { fg = NEON.dim } },
+  { "SnacksTitle",            { fg = NEON.border, bold = true } }, -- box 边框窗标题
+  { "SnacksNormal",           { bg = NEON.bg, fg = NEON.white } }, -- box 边框窗
+  { "SnacksNormalNC",         { bg = NEON.bg, fg = NEON.white } },
+  { "SnacksPickerTotals",     { fg = NEON.border, bold = true } }, -- 204/204 计数器
+  { "SnacksPickerPrompt",     { fg = NEON.border, bold = true } }, -- ❯ 提示符
+  { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } },-- 过滤匹配词
+  { "SnacksPickerSelected",   { fg = NEON.border, bold = true } }, -- ● 已选
+  { "SnacksPickerUnselected", { fg = NEON.dim } },                  -- ○ 未选
 }
 
 local function define_highlights()
@@ -308,28 +301,99 @@ local function start_pulse()
   end)
 end
 
--- 注意：snacks.picker.win.Config 只接受 input / list / preview 三个键。
--- 塞 backdrop 进去会炸：config/init.lua 的 fix_keys 对 opts.win 做 pairs 遍历
--- 并取 win.keys，backdrop 是数字 → "attempt to index local 'win' (a number value)"。
--- 遮罩效果改由每个窗口自己的 snacks.win.Config.backdrop 提供（那里才合法）。
-local function win_config()
-  local borderchars = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+-- ===== 单卡片布局（v6 推倒重构）=====
+-- 结构（一个圆角卡片，无右侧预览）：
+--   ╭───────── 标题（粉色加粗，居中）─────────╮
+--   ❯ 过滤输入…                        204/204 │
+--   ──────────────────────────────────────────
+--   ○ id                     名称              │
+--   ──────────────────────────────────────────
+--   名称 · [分组] · 完整描述（当前项，一行截断）│
+--   ╰──────────────────────────────────────────╯
+-- 关键发现：layout.lua 用 Snacks.win.resolve(box, ...) 建 box 的边框窗口，
+-- box 表上的字段直通那个窗口 → winhighlight 必须写在 box 上边框才是粉色。
+-- 之前边框一直是主题蓝，就是因为 default/select 预设把边框画在 box 层，
+-- 而 winhighlight 只给了 input/list/preview 三个内容窗口，根本没够到边框。
+local CARD_W = 90
+local CARD_BORDER = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+local FOOT_NS = vim.api.nvim_create_namespace("wiz_footer")
+
+local function card_layout(list_h)
   return {
-    input = {
-      border = borderchars,
-      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle,WinSeparator:WizBorder",
-    },
-    list = {
-      border = borderchars,
-      backdrop = 60,  -- 压暗编辑器背景，霓虹卡片浮出来（合法位置：单个窗口内）
-      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle,CursorLine:WizCursorLine,Search:None",
-    },
-    preview = {
-      border = borderchars,
-      wo = { number = false, relativenumber = false, signcolumn = "no" },
-      winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle",
+    layout = {
+      box = "vertical",
+      backdrop = false,
+      width = CARD_W,
+      -- input 1 + list + footer 1 + 上下边框 2；snacks 对 vertical 根会把
+      -- 多余高度裁掉，所以这里宁大勿小
+      height = list_h + 4,
+      border = CARD_BORDER,
+      title = "{title}",
+      title_pos = "center",
+      winhighlight = "FloatBorder:WizBorder,FloatTitle:WizTitle,Normal:WizBg",
+      { win = "input", height = 1, border = "bottom" },
+      { win = "list", border = "none" },
+      { win = "preview", height = 1, border = "top" },
     },
   }
+end
+
+-- win.Config 只接受 input / list / preview 三个键；backdrop 只能放单个窗口里
+-- （config/init.lua 的 fix_keys 会对 opts.win 做 pairs 取 win.keys，数字会炸）。
+-- 注意：这里的 winhighlight 写了也没用（init_layout 用 winhl() 生成的覆盖），
+-- 变色全走上面 SNACKS_HL 的基座组。win 配置只管 backdrop / wo / minimal。
+local function win_config()
+  return {
+    input = {
+      wo = { winblend = 0, number = false, signcolumn = "no", wrap = false },
+    },
+    list = {
+      backdrop = 60,  -- 压暗编辑器背景，卡片浮出来（只给 list，避免 backdrop 叠加）
+      wo = { winblend = 0, number = false, relativenumber = false, signcolumn = "no", wrap = false },
+    },
+    preview = {
+      minimal = true, -- preview.lua: number = minimal ~= true，不开这个底部行会有行号
+      wo = { winblend = 0, wrap = false },
+    },
+  }
+end
+
+-- 底部说明行宽度：卡片宽 - 左右边框 - 左右内衬
+local function footer_width() return CARD_W - 4 end
+
+-- 按显示列数截断 Highlight 数组（各段都是 ASCII 字段，字节≈列宽）
+local function fit_chunks(chunks, width)
+  local out, used = {}, 0
+  for _, c in ipairs(chunks) do
+    local s = c[1] or ""
+    local remain = width - used
+    if remain <= 0 then break end
+    if #s > remain then
+      out[#out + 1] = { s:sub(1, math.max(remain - 1, 1)) .. "…", c[2] }
+      break
+    end
+    out[#out + 1] = { s, c[2] }
+    used = used + #s
+  end
+  return out
+end
+
+-- preview 窗口只有 1 行高：用 virt_text overlay 渲染分段着色，天然不折行
+local function footer_preview(preview_of)
+  return function(ctx)
+    local it = ctx.item and ctx.item.item
+    if not it then return false end
+    pcall(function() vim.bo[ctx.buf].modifiable = true end)
+    vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, { "" })
+    pcall(vim.api.nvim_buf_del_extmark, ctx.buf, FOOT_NS, 1)
+    local ok, chunks = pcall(preview_of, it)
+    if not ok then chunks = { { tostring(chunks), "WizHint" } } end
+    pcall(vim.api.nvim_buf_set_extmark, ctx.buf, FOOT_NS, 0, 0, {
+      id = 1, virt_text = fit_chunks(chunks or {}, footer_width()),
+      virt_text_pos = "overlay", hl_mode = "combine",
+    })
+    return true
+  end
 end
 
 -- dressing 的回调可能同步也可能异步触发，两种顺序都要接住，否则流程卡死
@@ -363,26 +427,7 @@ local function cancel()
   vim.notify("已取消，未改动任何文件", vim.log.levels.INFO)
 end
 
--- 主键亮 + 说明暗：id 亮白、hint 灰，窄列表里像终端命令
-local function fmt_hint(item)
-  local d = item.item or item
-  return {
-    { d.id or "", "WizKey" },
-    { "   " },
-    { d.hint or "", "WizHint" },
-  }
-end
 
--- 递归遍历 layout 的所有 box（default 预设里 list 嵌在 vertical box 内部，
--- 只在 layout.layout 一层迭代会漏掉它，高度贴合就白写了）
-local function each_box(root, fn)
-  local function walk(box)
-    if type(box) ~= "table" then return end
-    fn(box)
-    for _, child in ipairs(box) do walk(child) end
-  end
-  walk(root)
-end
 
 ----------------------------------------------------------------------------
 -- 5. 单选与多选（snacks.picker）
@@ -394,30 +439,20 @@ end
 --   snacks.picker 的 format 返回 Highlight 数组（逐段着色），勾选列与预览都是内置
 --   而且 <Tab> 默认就绑了 select_and_next（勾选并下移），正是你要的交互
 
-local function pick_one(items, title, fmt)
+-- 单选卡片：行只显示 id，当前项的 hint/详情渲染在底部说明行
+-- items: { id = ..., hint = ... }；opts.preview: fun(item) -> Highlight[]
+local function pick_one(items, title, opts)
+  opts = opts or {}
+  local preview_of = opts.preview or function(d)
+    return { { d.hint or "", "WizHint" } }
+  end
   return bridge(function(done)
     local completed = false
-    local function finish(choice)
-      if completed then return end
-      completed = true
-      done(choice)
-    end
     start_pulse()
     Snacks.picker.pick({
       source = "select",
       title = title,
-      layout = {
-        preset = "select",
-        config = function(layout)
-          -- 高度贴合条目数：列表占满条目高度，不再留大片空底
-          -- （config 收到的是合并后的完整配置，box 树在 layout.layout 里）
-          each_box(layout.layout or layout, function(box)
-            if box.win == "list" and not box.height then
-              box.height = math.max(math.min(#items + 1, vim.o.lines * 0.8 - 10), 2)
-            end
-          end)
-        end,
-      },
+      layout = card_layout(math.max(math.min(#items, 10), 2)),
       win = win_config(),
       finder = function()
         local ret = {}
@@ -430,7 +465,12 @@ local function pick_one(items, title, fmt)
         end
         return ret
       end,
-      format = fmt or fmt_hint,
+      format = function(item, picker)
+        local d = item.item or item
+        local cur = picker and picker.list and picker.list:current()
+        return { { d.id or "", cur == item and "WizSel" or "WizKey" } }
+      end,
+      preview = footer_preview(preview_of),
       filter = {},
       actions = {
         confirm = function(picker, pitem)
@@ -458,48 +498,23 @@ end
 local function pick_deps(all_deps)
   return bridge(function(done)
     local completed = false
-    local function finish(v)
-      if completed then return end
-      completed = true
-      done(v)
-    end
     start_pulse()
 
-    -- 列宽策略：id 是主键列（亮白），名称列给足空间不截断。
-    -- 窗口宽 = 编辑器列数的 62%（上限 112），右下角预览再挤点宽度。
-    local list_w = math.min(math.floor(vim.o.columns * 0.62), 112)
+    -- 两列布局：id 列按实际最长 id 封顶 24，名称列拿剩余全部宽度。
+    -- 列表可用宽 = 卡片 90 - 边框 2 - 勾选列 2 - 内衬 2
     local w_id = 0
     for _, d in ipairs(all_deps) do
       w_id = math.max(w_id, #(d.id or ""))
     end
-    w_id = math.max(math.min(w_id, 22), 8)          -- id 列：实际最长 id，封顶 22
-    local w_group = math.min(12, 12)                 -- 分组徽章列固定 12
-    local w_name = math.max(list_w - w_id - w_group - 16, 16) -- 名称列：剩余全部
+    w_id = math.max(math.min(w_id, 24), 8)
+    local w_name = CARD_W - 8 - w_id - 2
 
     Snacks.picker.pick({
       source = "select",
-      title = "6. 选择依赖　Tab 勾选　Enter 完成",
-      layout = {
-        preset = "default",  -- 列表 + 右侧预览
-        config = function(layout)
-          -- default 是 horizontal 根布局：只缩 list 不会缩左侧 vertical 外框，
-          -- 多余高度就会变成列表下方大片空白。根高度也要一起收紧。
-          local list_height = math.max(math.min(#all_deps + 2, 14), 3)
-          local root = layout.layout or layout
-          root.height = list_height + 1
-          each_box(root, function(box)
-            if box.win == "list" and not box.height then
-              box.height = list_height
-            end
-            if box.win == "preview" then
-              box.width = 0.3
-            end
-          end)
-        end,
-      },
-      -- win_config 里 backdrop 是压暗编辑器：卡片浮出来
+      title = "6. 选择依赖",
+      layout = card_layout(14),
       win = win_config(),
-      -- 每行都显示勾选框：沿用 snacks 稳定可见的 ○/● 图标
+      -- 每行都显示勾选框：○ 未选 / ● 已选（Tab 切换，snacks 内置列）
       formatters = { selected = { show_always = true, unselected = true } },
       finder = function()
         local ret = {}
@@ -514,43 +529,24 @@ local function pick_deps(all_deps)
       end,
       format = function(item, picker)
         local d = item.item or item
-        local current = picker and picker.list and picker.list:current()
-        local is_cur = current == item
+        local cur = picker and picker.list and picker.list:current()
+        local hl = cur == item and "WizSel" or "WizKey"
         return {
-          { cut(d.id, w_id), is_cur and "WizSel" or "WizKey" },
+          { cut(d.id, w_id), hl },
           { "  " },
-          { cut("[" .. (d.group or "") .. "]", w_group), "WizBadge" },
-          { "  " },
-          { cut_last(d.name, w_name), is_cur and "WizSel" or "WizHint" },
+          { cut_last(d.name, w_name), cur == item and "WizSel" or "WizHint" },
         }
       end,
-      preview = function(ctx)
-        local d = ctx.item and ctx.item.item
-        if not d then return false end
-        local lines = {
-          "名称   " .. d.name,
-          "分组   " .. d.group,
-          "id     " .. d.id,
-          string.rep("─", 44),
-          "",
+      -- 底部说明行：名称 · [分组] · 完整描述（一行，超长截断）
+      preview = footer_preview(function(d)
+        return {
+          { d.name or "", "WizKey" },
+          { "  ·  ", "WizDim" },
+          { "[" .. (d.group or "") .. "]", "WizBadge" },
+          { "  ·  ", "WizDim" },
+          { d.description or "", "WizHint" },
         }
-        for _, l in ipairs(wrap_text(d.description, 44)) do lines[#lines + 1] = l end
-        lines[#lines + 1] = ""
-
-        pcall(function() vim.bo[ctx.buf].modifiable = true end)
-        pcall(vim.api.nvim_buf_clear_namespace, ctx.buf, -1, 0, -1) -- 旧高亮先清，防止行号错位
-        vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, lines)
-        -- 霓虹层次：标签琥珀 / 值亮白 / id 青 / 分隔线青
-        local function hl(ln, c0, c1, grp)
-          pcall(vim.api.nvim_buf_add_highlight, ctx.buf, -1, grp, ln, c0, c1)
-        end
-        hl(0, 0, 8, "WizBadge"); hl(0, 8, -1, "WizKey")
-        hl(1, 0, 8, "WizBadge"); hl(1, 8, -1, "WizBadge")
-        hl(2, 0, 8, "WizBadge"); hl(2, 8, -1, "WizTitle")
-        hl(3, 0, -1, "WizBorder")
-        for i = 5, #lines - 2 do hl(i, 0, -1, "WizHint") end
-        return true
-      end,
+      end),
       filter = {},
       actions = {
         confirm = function(picker)
@@ -617,7 +613,14 @@ local function flow()
     if v.id == "21" then hint = "LTS，推荐" elseif v.id == "17" then hint = "最低可用" end
     jv_items[i] = { id = v.id, hint = hint }
   end
-  local jv = pick_one(jv_items, "3. Java 版本　本机 JDK 26，jdtls 要求 17+")
+  local jv = pick_one(jv_items, "3. Java 版本", {
+    preview = function(d)
+      return {
+        { d.hint or "", "WizHint" },
+        { "   ·   本机 JDK 26，jdtls 要求 17+", "WizDim" },
+      }
+    end,
+  })
   if not jv then return cancel() end
 
   local boots = boot_options(meta)
@@ -692,10 +695,21 @@ local function flow()
   }, "   ")
 
   local go = pick_one({
-    { id = "go",   hint = parent .. "/" .. name },
-    { id = "redo", hint = "重新走一遍向导" },
-    { id = "no",   hint = "不留任何文件" },
-  }, "确认创建　" .. summary)
+    { id = "go",   hint = "创建到 " .. parent .. "/" .. name },
+    { id = "redo", hint = "回到第 1 步，重新走一遍向导" },
+    { id = "no",   hint = "取消，不留任何文件" },
+  }, "确认创建", {
+    preview = function(d)
+      if d.id == "go" then
+        return {
+          { summary, "WizKey" },
+          { "   →   ", "WizDim" },
+          { parent .. "/" .. name, "WizSel" },
+        }
+      end
+      return { { d.hint or "", "WizHint" } }
+    end,
+  })
   if not go or go.id == "no" then return cancel() end
   if go.id == "redo" then
     vim.schedule(function() M.create() end)
