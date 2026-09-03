@@ -9,9 +9,9 @@
 --   1. 弃用 default/select 预设，自绘 vertical box 布局：
 --      边框画在 box 层；winhighlight 走 snacks 链接链的基座组
 --      （SnacksPickerBorder/Title/…），启动时定义实色即可全程截胡
---   2. 右侧预览 → 底部 1 行说明（preview 窗 1 高 + virt_text 分段着色）
+--   2. 右侧预览 → 底部 3 行说明区（preview 窗逐字换行 + 分段着色）
 --   3. 单选步行只显示 id，hint 挪到底部行；确认步底部行 = 摘要 → 路径
---   4. winblend=0 全实心；配色直写 catppuccin-mocha 十六进制
+--   4. 配色直写 catppuccin-mocha；v6.1 面板透明（bg=NONE、无 backdrop），同其它浮窗
 --
 -- 放在 core/ 而非 plugins/：core/lazy.lua 用 { import = "plugins" }，
 -- lazy 会把 plugins/ 下每个 .lua 当 spec 递归加载，本文件返回的是模块。
@@ -233,7 +233,7 @@ local NEON = {
 }
 
 local HL_DEFS = {
-  { "WizBg",        { bg = NEON.bg } },
+  { "WizBg",        { bg = "NONE" } },  -- 透明底：和编辑器其它浮窗同风格（kitty 全局透明度）
   { "WizBorder",    { fg = NEON.border } },
   { "WizTitle",     { fg = NEON.border, bold = true } },
   { "WizCursorLine",{ bg = NEON.rowbg, fg = NEON.sun, bold = true, underline = true, sp = NEON.border } },
@@ -251,7 +251,7 @@ local HL_DEFS = {
 -- 这些链接全部以 default=true 注册。所以只要启动时先把「基座组」定义成
 -- 非 default 的实色，snacks 的默认注册就永远盖不掉我们，整条链变色。
 local SNACKS_HL = {
-  { "SnacksPicker",           { bg = NEON.bg, fg = NEON.white } },  -- NormalFloat 基座（三窗共用）
+  { "SnacksPicker",           { bg = "NONE", fg = NEON.white } },   -- NormalFloat 基座：透明底
   { "SnacksPickerBorder",     { fg = NEON.border } },               -- 所有窗口边框
   { "SnacksPickerTitle",      { fg = NEON.border, bold = true } }, -- 窗口标题
   { "SnacksPickerCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
@@ -259,8 +259,8 @@ local SNACKS_HL = {
   { "SnacksPickerListCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
   { "SnacksPickerFooter",     { fg = NEON.dim } },
   { "SnacksTitle",            { fg = NEON.border, bold = true } }, -- box 边框窗标题
-  { "SnacksNormal",           { bg = NEON.bg, fg = NEON.white } }, -- box 边框窗
-  { "SnacksNormalNC",         { bg = NEON.bg, fg = NEON.white } },
+  { "SnacksNormal",           { bg = "NONE", fg = NEON.white } },  -- box 边框窗：透明底
+  { "SnacksNormalNC",         { bg = "NONE", fg = NEON.white } },
   { "SnacksPickerTotals",     { fg = NEON.border, bold = true } }, -- 204/204 计数器
   { "SnacksPickerPrompt",     { fg = NEON.border, bold = true } }, -- ❯ 提示符
   { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } },-- 过滤匹配词
@@ -315,6 +315,7 @@ end
 -- 之前边框一直是主题蓝，就是因为 default/select 预设把边框画在 box 层，
 -- 而 winhighlight 只给了 input/list/preview 三个内容窗口，根本没够到边框。
 local CARD_W = 90
+local FOOT_LINES = 3   -- 底部说明区行数（卡片高度恒定）
 local CARD_BORDER = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
 local FOOT_NS = vim.api.nvim_create_namespace("wiz_footer")
 
@@ -324,16 +325,15 @@ local function card_layout(list_h)
       box = "vertical",
       backdrop = false,
       width = CARD_W,
-      -- input 1 + list + footer 1 + 上下边框 2；snacks 对 vertical 根会把
-      -- 多余高度裁掉，所以这里宁大勿小
-      height = list_h + 4,
+      -- input 1 + list + footer(FOOT_LINES) + 上下边框 2
+      height = list_h + FOOT_LINES + 3,
       border = CARD_BORDER,
       title = "{title}",
       title_pos = "center",
       winhighlight = "FloatBorder:WizBorder,FloatTitle:WizTitle,Normal:WizBg",
       { win = "input", height = 1, border = "bottom" },
       { win = "list", border = "none" },
-      { win = "preview", height = 1, border = "top" },
+      { win = "preview", height = FOOT_LINES, border = "top" },
     },
   }
 end
@@ -348,7 +348,7 @@ local function win_config()
       wo = { winblend = 0, number = false, signcolumn = "no", wrap = false },
     },
     list = {
-      backdrop = 60,  -- 压暗编辑器背景，卡片浮出来（只给 list，避免 backdrop 叠加）
+      -- 不设 backdrop：透明底后压暗反而成了一块死黑，和「跟其他地方一样」矛盾
       wo = { winblend = 0, number = false, relativenumber = false, signcolumn = "no", wrap = false },
     },
     preview = {
@@ -358,40 +358,73 @@ local function win_config()
   }
 end
 
--- 底部说明行宽度：卡片宽 - 左右边框 - 左右内衬
+-- 底部说明区：固定 FOOT_LINES 行（卡片高度恒定），逐字换行 + 分段着色
 local function footer_width() return CARD_W - 4 end
 
--- 按显示列数截断 Highlight 数组（各段都是 ASCII 字段，字节≈列宽）
-local function fit_chunks(chunks, width)
-  local out, used = {}, 0
+-- UTF-8 逐字符展平；宽度按显示列算：ASCII=1，其余（CJK 等）=2
+local function flatten_chunks(chunks)
+  local out = {}
   for _, c in ipairs(chunks) do
-    local s = c[1] or ""
-    local remain = width - used
-    if remain <= 0 then break end
-    if #s > remain then
-      out[#out + 1] = { s:sub(1, math.max(remain - 1, 1)) .. "…", c[2] }
-      break
+    local text, hl = c[1] or "", c[2]
+    local i = 1
+    while i <= #text do
+      local b = text:byte(i)
+      local clen = (b < 0x80) and 1 or ((b < 0xE0) and 2 or ((b < 0xF0) and 3 or 4))
+      local s = text:sub(i, i + clen - 1)
+      out[#out + 1] = { s = s, hl = hl, w = (clen > 1) and 2 or 1 }
+      i = i + clen
     end
-    out[#out + 1] = { s, c[2] }
-    used = used + #s
   end
   return out
 end
 
--- preview 窗口只有 1 行高：用 virt_text overlay 渲染分段着色，天然不折行
+-- 排成最多 max_lines 行；每行返回 { text=整行文本, segs={ {s=字节起,e=字节止,hl} } }
+local function layout_footer(chunks, width, max_lines)
+  local flat = flatten_chunks(chunks)
+  local lines = { { text = "", segs = {} } }
+  local cur, w = lines[1], 0
+  local seg_s, seg_hl = 0, nil
+  local function flush()
+    if seg_hl and #cur.text > seg_s then
+      cur.segs[#cur.segs + 1] = { s = seg_s, e = #cur.text, hl = seg_hl }
+    end
+  end
+  for _, ch in ipairs(flat) do
+    if w + ch.w > width then
+      if #lines >= max_lines then break end -- 装不下就截尾，不加省略号（3*86 列足够描述）
+      flush()
+      lines[#lines + 1] = { text = "", segs = {} }
+      cur, w, seg_s, seg_hl = lines[#lines], 0, 0, nil
+    end
+    if seg_hl ~= ch.hl then
+      flush()
+      seg_s, seg_hl = #cur.text, ch.hl
+    end
+    cur.text = cur.text .. ch.s
+    w = w + ch.w
+  end
+  flush()
+  return lines
+end
+
 local function footer_preview(preview_of)
   return function(ctx)
     local it = ctx.item and ctx.item.item
     if not it then return false end
     pcall(function() vim.bo[ctx.buf].modifiable = true end)
-    vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, { "" })
-    pcall(vim.api.nvim_buf_del_extmark, ctx.buf, FOOT_NS, 1)
     local ok, chunks = pcall(preview_of, it)
     if not ok then chunks = { { tostring(chunks), "WizHint" } } end
-    pcall(vim.api.nvim_buf_set_extmark, ctx.buf, FOOT_NS, 0, 0, {
-      id = 1, virt_text = fit_chunks(chunks or {}, footer_width()),
-      virt_text_pos = "overlay", hl_mode = "combine",
-    })
+    local lines = layout_footer(chunks or {}, footer_width(), FOOT_LINES)
+    local text = {}
+    for _, l in ipairs(lines) do text[#text + 1] = l.text end
+    while #text < FOOT_LINES do text[#text + 1] = "" end
+    vim.api.nvim_buf_set_lines(ctx.buf, 0, -1, false, text)
+    pcall(vim.api.nvim_buf_clear_namespace, ctx.buf, FOOT_NS, 0, -1)
+    for li, l in ipairs(lines) do
+      for _, sg in ipairs(l.segs) do
+        pcall(vim.api.nvim_buf_add_highlight, ctx.buf, FOOT_NS, sg.hl or "WizHint", li - 1, sg.s, sg.e)
+      end
+    end
     return true
   end
 end
