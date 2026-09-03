@@ -233,31 +233,23 @@ end
 -- 4. UI 桥与视觉主题
 -- ----------------------------------------------------------------------------
 
--- ===== 赛博霓虹主题（2026-09-02 v4）=====
--- 设计基准（对应你发的重设计规格）：
---   背景 #0D1117 最深黑       面板不透明，压暗编辑器，卡片浮出
---   边框 #00E5FF 霓虹青       极细锐利圆角（╭╮╰╯），且随时间轻微呼吸（pulse）
---   主文字 #E6EDF3 亮白       关键数据列（id）
---   选中行  文字 #00FFFF      青光环：青黑底 + 青色下划线，模拟发光
---   关键词 #FF00E0 品红       Filter 匹配高亮 / 标题装饰
---   状态徽章 #FFC107 琥珀     分组（AI、SQL…）
---   计数 204/204 琥珀加粗     与正文区分字重
--- 终端物理限制（没有透明/发光/圆角渲染），用底色+下划线+字重近似：
---   发光 → 选中行 bg=#0A2B36 青黑 + underline sp=#00E5FF
---   呼吸 → timer 交替 WizBorder 的 fg
---   圆角 → borderchars 用 ╭╮╰╯ 半圆角字符
+-- ===== noice 同款粉系主题（catppuccin-mocha v5）=====
+-- 设计基准：底 #1E1E2E、边框 #F38BA8、选中 #F5C2E7、徽章 #FAB387。
+-- 终端物理限制（没有透明/发光渲染），用深色面板、下划线、字重近似 noice。
+-- 边框通过 timer 在粉色阶之间缓慢呼吸；圆角用 ╭╮╰╯ 字符。
+-- v5：改用 noice 通知弹框那一套（catppuccin-mocha 粉系），和编辑器主题同族
 local NEON = {
-  bg      = "#0D1117",
-  border  = "#00E5FF",
-  borderB = "#33EBFF",
-  borderC = "#00C8E8",
-  sun     = "#00FFFF",  -- 选中行文字
-  white   = "#E6EDF3",  -- 主文字
-  grey    = "#8B98A8",  -- 次文字（deps 名称）
-  dim     = "#3D4B57",  -- 未选中 ○ / 空态
-  magenta = "#FF00E0",  -- 关键词
-  amber   = "#FFC107",  -- 状态徽章
-  rowbg   = "#0A2B36",  -- 选中行底（青黑）
+  bg      = "#1E1E2E",  -- catppuccin base：noice 弹框同款底
+  border  = "#F38BA8",  -- noice 粉
+  borderB = "#F5A0B8",
+  borderC = "#E893AC",
+  sun     = "#F5C2E7",  -- 选中行文字（mauve）
+  white   = "#CDD6F4",  -- 主文字（text）
+  grey    = "#A6ADC8",  -- 次文字（subtext1）
+  dim     = "#585B70",  -- 未选中 □ / 空态（overlay0）
+  magenta = "#CBA6F7",  -- 过滤匹配词（lavender）
+  amber   = "#FAB387",  -- 分组徽章（peach）
+  rowbg   = "#313244",  -- 选中行底（surface0）
 }
 
 local HL_DEFS = {
@@ -292,7 +284,7 @@ local function define_highlights()
   end
 end
 
--- 边框呼吸：WizBorder 在三个青色之间缓慢过渡（1.2s 一步）
+-- 边框呼吸：WizBorder 在三个粉色之间缓慢过渡（1.2s 一步）
 local border_timer = nil
 local border_step = 0
 local function stop_pulse()
@@ -334,6 +326,7 @@ local function win_config()
     },
     preview = {
       border = borderchars,
+      wo = { number = false, relativenumber = false, signcolumn = "no" },
       winhighlight = "Normal:WizBg,FloatBorder:WizBorder,FloatTitle:WizTitle",
     },
   }
@@ -485,14 +478,18 @@ local function pick_deps(all_deps)
 
     Snacks.picker.pick({
       source = "select",
-      title = "⑥ 选择依赖　Tab 勾选　Enter 完成",
+      title = "6. 选择依赖　Tab 勾选　Enter 完成",
       layout = {
         preset = "default",  -- 列表 + 右侧预览
         config = function(layout)
-          -- 高度贴合条目数（封顶 22 行）；预览窗占 30% 宽，不再给 50%
-          each_box(layout.layout or layout, function(box)
+          -- default 是 horizontal 根布局：只缩 list 不会缩左侧 vertical 外框，
+          -- 多余高度就会变成列表下方大片空白。根高度也要一起收紧。
+          local list_height = math.max(math.min(#all_deps + 2, 14), 3)
+          local root = layout.layout or layout
+          root.height = list_height + 1
+          each_box(root, function(box)
             if box.win == "list" and not box.height then
-              box.height = math.max(math.min(#all_deps + 2, 22), 3)
+              box.height = list_height
             end
             if box.win == "preview" then
               box.width = 0.3
@@ -502,8 +499,8 @@ local function pick_deps(all_deps)
       },
       -- win_config 里 backdrop 是压暗编辑器：卡片浮出来
       win = win_config(),
-      -- 每行都显示勾选框：未选 □、已选 ▣，像素风
-      formatters = { selected = { show_always = true, unselected = true, icons = { unselected = "□ ", selected = "▣ " } } },
+      -- 每行都显示勾选框：沿用 snacks 稳定可见的 ○/● 图标
+      formatters = { selected = { show_always = true, unselected = true } },
       finder = function()
         local ret = {}
         for idx, d in ipairs(all_deps) do
@@ -522,7 +519,7 @@ local function pick_deps(all_deps)
         return {
           { cut(d.id, w_id), is_cur and "WizSel" or "WizKey" },
           { "  " },
-          { "[" .. cut(d.group, w_group - 2) .. "]", "WizBadge" },
+          { cut("[" .. (d.group or "") .. "]", w_group), "WizBadge" },
           { "  " },
           { cut_last(d.name, w_name), is_cur and "WizSel" or "WizHint" },
         }
@@ -600,7 +597,7 @@ local function flow()
   local build = pick_one({
     { id = "maven",  hint = "pom.xml + mvnw" },
     { id = "gradle", hint = "build.gradle.kts + gradlew" },
-  }, "① 构建工具")
+  }, "1. 构建工具")
   if not build then return cancel() end
 
   local langs = simple_options(meta.language)
@@ -609,7 +606,7 @@ local function flow()
   for i, l in ipairs(langs) do
     lang_items[i] = { id = l.id, hint = l.id == "java" and "推荐" or "" }
   end
-  local lang = pick_one(lang_items, "② 语言")
+  local lang = pick_one(lang_items, "2. 语言")
   if not lang then return cancel() end
 
   local jvers = simple_options(meta.javaVersion)
@@ -620,7 +617,7 @@ local function flow()
     if v.id == "21" then hint = "LTS，推荐" elseif v.id == "17" then hint = "最低可用" end
     jv_items[i] = { id = v.id, hint = hint }
   end
-  local jv = pick_one(jv_items, "③ Java 版本　本机 JDK 26，jdtls 要求 17+")
+  local jv = pick_one(jv_items, "3. Java 版本　本机 JDK 26，jdtls 要求 17+")
   if not jv then return cancel() end
 
   local boots = boot_options(meta)
@@ -630,7 +627,7 @@ local function flow()
     if b.pre then hint = "预发布，可能拉不到" elseif i == 1 then hint = "最新正式版" end
     boot_items[i] = { id = b.real, hint = hint }
   end
-  local bv = pick_one(boot_items, "④ Spring Boot 版本")
+  local bv = pick_one(boot_items, "4. Spring Boot 版本")
   if not bv then return cancel() end
 
   local packs = simple_options(meta.packaging)
@@ -642,22 +639,22 @@ local function flow()
       hint = v.id == "jar" and "可执行 jar，内嵌 Tomcat" or "部署到外部容器",
     }
   end
-  local pkg = pick_one(pack_items, "⑤ 打包方式")
+  local pkg = pick_one(pack_items, "5. 打包方式")
   if not pkg then return cancel() end
 
   local all_deps = dependency_options(meta)
   local deps = pick_deps(all_deps)
   if not deps then return cancel() end
 
-  local group = ask("⑦ Group ID（组织反写域名）: ", "com.example")
+  local group = ask("7. Group ID（组织反写域名）: ", "com.example")
   if not group or group == "" then return cancel() end
-  local artifact = ask("⑧ Artifact ID（小写，建议无连字符）: ", "demo")
+  local artifact = ask("8. Artifact ID（小写，建议无连字符）: ", "demo")
   if not artifact or artifact == "" then return cancel() end
-  local name = ask("⑨ 项目名 / 目录名: ", artifact)
+  local name = ask("9. 项目名 / 目录名: ", artifact)
   if not name or name == "" then return cancel() end
-  local pkgname = ask("⑩ 包名: ", sanitize_package(group .. "." .. artifact))
+  local pkgname = ask("10. 包名: ", sanitize_package(group .. "." .. artifact))
   if not pkgname or pkgname == "" then return cancel() end
-  local parent = ask("⑪ 创建到哪个目录下: ", vim.fn.getcwd())
+  local parent = ask("11. 创建到哪个目录下: ", vim.fn.getcwd())
   if not parent or parent == "" then return cancel() end
   if vim.uv.fs_stat(parent) == nil then
     vim.notify("目录不存在：" .. parent, vim.log.levels.ERROR)
