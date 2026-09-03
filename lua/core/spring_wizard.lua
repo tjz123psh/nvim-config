@@ -458,9 +458,21 @@ local function bridge(caller)
 end
 
 -- 文本输入仍走 dressing（snacks.input 已关闭，避免抢 noice/dressing 的活）
+-- 注意：不能用 vim.ui.input 的 default 参数——dressing 会把默认值预填进输入框，
+-- 用户直接打字会追加到预填文本后面（tmux 实测：路径拼错→目录不存在→静默退出）。
+-- 改成：默认值只写进提示里，空输入 = 采用默认值。
 local function ask(prompt, default)
   return bridge(function(done)
-    vim.ui.input({ prompt = prompt, default = default }, function(text) done(text) end)
+    local shown = default and (prompt .. " [" .. default .. "]") or prompt
+    vim.ui.input({ prompt = shown }, function(text)
+      if text == nil then
+        done(nil)
+      elseif text == "" then
+        done(default)
+      else
+        done(text)
+      end
+    end)
   end)
 end
 
@@ -527,6 +539,8 @@ local function pick_one(items, title, opts)
       end,
       preview = footer_on and footer_preview(preview_of) or function() return false end,
       filter = {},
+      -- 显式绑 <C-s> 完成（snacks 默认 <c-s> 是 edit_split，文档承诺过 C-s=Enter）
+      keys = { ["<c-s>"] = "confirm" },
       actions = {
         confirm = function(picker, pitem)
           -- 必须先置守卫再 close：否则 close 触发的 on_close 会抢先
@@ -604,6 +618,7 @@ local function pick_deps(all_deps)
         }
       end),
       filter = {},
+      keys = { ["<c-s>"] = "confirm" },
       actions = {
         confirm = function(picker)
           if completed then return end
