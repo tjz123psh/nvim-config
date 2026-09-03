@@ -227,9 +227,10 @@ local NEON = {
   white   = "#CDD6F4",  -- 主文字（text）
   grey    = "#A6ADC8",  -- 次文字（subtext1）
   dim     = "#585B70",  -- 未选中 □ / 空态（overlay0）
-  magenta = "#CBA6F7",  -- 过滤匹配词（lavender）
-  amber   = "#FAB387",  -- 分组徽章（peach）
-  rowbg   = "#313244",  -- 选中行底（surface0）
+  magenta = "#CBA6F7",  -- 过滤匹配词 / 计数器（lavender）
+  amber   = "#FAB387",  -- 分组徽章 / 行内 hint（peach）
+  green   = "#A6E3A1",  -- ❯ 提示符（catppuccin green）
+  rowbg   = "#313244",  -- （弃用）旧选中行底
 }
 
 local HL_DEFS = {
@@ -243,6 +244,8 @@ local HL_DEFS = {
   { "WizHint",      { fg = NEON.grey } },
   { "WizDim",       { fg = NEON.dim } },
   { "WizMagenta",   { fg = NEON.magenta, bold = true } },
+  { "WizMarker",    { fg = NEON.border, bold = true } },  -- 行首 ▸ 指针
+  { "WizPeach",     { fg = NEON.amber } },                -- 行内 hint（不加粗）
 }
 
 -- 根治「边框一直是主题蓝」：snacks 的 winhighlight 不用我们给的字符串
@@ -254,15 +257,15 @@ local SNACKS_HL = {
   { "SnacksPicker",           { bg = "NONE", fg = NEON.white } },   -- NormalFloat 基座：透明底
   { "SnacksPickerBorder",     { fg = NEON.border } },               -- 所有窗口边框
   { "SnacksPickerTitle",      { fg = NEON.border, bold = true } }, -- 窗口标题
-  { "SnacksPickerCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
-  -- list 的当前行 snacks 默认 link 到 Visual（灰杠），直接定义叶子组截胡
-  { "SnacksPickerListCursorLine", { bg = NEON.rowbg, underline = true, sp = NEON.border } },
+  -- 当前行不再画底色条（透明底上像膏药）：标注改由行首 ▸ + 文字 mauve 完成
+  { "SnacksPickerCursorLine",     { bg = "NONE" } },
+  { "SnacksPickerListCursorLine", { bg = "NONE" } },
   { "SnacksPickerFooter",     { fg = NEON.dim } },
   { "SnacksTitle",            { fg = NEON.border, bold = true } }, -- box 边框窗标题
   { "SnacksNormal",           { bg = "NONE", fg = NEON.white } },  -- box 边框窗：透明底
   { "SnacksNormalNC",         { bg = "NONE", fg = NEON.white } },
-  { "SnacksPickerTotals",     { fg = NEON.border, bold = true } }, -- 204/204 计数器
-  { "SnacksPickerPrompt",     { fg = NEON.border, bold = true } }, -- ❯ 提示符
+  { "SnacksPickerTotals",     { fg = NEON.magenta, bold = true } }, -- 计数器 lavender
+  { "SnacksPickerPrompt",     { fg = NEON.green, bold = true } },    -- ❯ 提示符 green
   { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } },-- 过滤匹配词
   { "SnacksPickerSelected",   { fg = NEON.border, bold = true } }, -- ● 已选
   { "SnacksPickerUnselected", { fg = NEON.dim } },                  -- ○ 未选
@@ -319,14 +322,17 @@ local FOOT_LINES = 3   -- 底部说明区行数（卡片高度恒定）
 local CARD_BORDER = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
 local FOOT_NS = vim.api.nvim_create_namespace("wiz_footer")
 
-local function card_layout(list_h)
+-- footer_on=false 时隐藏 preview 窗（短 hint 直接排行内，卡片更矮）
+local function card_layout(list_h, footer_on)
+  footer_on = footer_on ~= false
   return {
+    hidden = footer_on and nil or { "preview" },
     layout = {
       box = "vertical",
       backdrop = false,
       width = CARD_W,
-      -- input 1 + list + footer(FOOT_LINES) + 上下边框 2
-      height = list_h + FOOT_LINES + 3,
+      -- input 1 + list + footer(3|0) + 上下边框 2
+      height = list_h + (footer_on and FOOT_LINES or 0) + 3,
       border = CARD_BORDER,
       title = "{title}",
       title_pos = "center",
@@ -472,10 +478,12 @@ end
 --   snacks.picker 的 format 返回 Highlight 数组（逐段着色），勾选列与预览都是内置
 --   而且 <Tab> 默认就绑了 select_and_next（勾选并下移），正是你要的交互
 
--- 单选卡片：行只显示 id，当前项的 hint/详情渲染在底部说明行
--- items: { id = ..., hint = ... }；opts.preview: fun(item) -> Highlight[]
+-- 单选卡片：行 = ▸指针 + id + peach hint（行内直排，默认无底部详情区）
+-- items: { id = ..., hint = ... }；opts.footer=true 时启用 3 行详情区，
+-- opts.preview: fun(item) -> Highlight[]（仅 footer 模式使用）
 local function pick_one(items, title, opts)
   opts = opts or {}
+  local footer_on = opts.footer == true
   local preview_of = opts.preview or function(d)
     return { { d.hint or "", "WizHint" } }
   end
@@ -485,7 +493,7 @@ local function pick_one(items, title, opts)
     Snacks.picker.pick({
       source = "select",
       title = title,
-      layout = card_layout(math.max(math.min(#items, 10), 2)),
+      layout = card_layout(math.max(math.min(#items, 10), 2), footer_on),
       win = win_config(),
       finder = function()
         local ret = {}
@@ -501,9 +509,21 @@ local function pick_one(items, title, opts)
       format = function(item, picker)
         local d = item.item or item
         local cur = picker and picker.list and picker.list:current()
-        return { { d.id or "", cur == item and "WizSel" or "WizKey" } }
+        local is_cur = cur == item
+        if footer_on then
+          return {
+            { is_cur and "▸ " or "  ", is_cur and "WizMarker" or "WizDim" },
+            { d.id or "", is_cur and "WizSel" or "WizKey" },
+          }
+        end
+        return {
+          { is_cur and "▸ " or "  ", is_cur and "WizMarker" or "WizDim" },
+          { d.id or "", is_cur and "WizSel" or "WizKey" },
+          { "  " },
+          { d.hint or "", "WizPeach" },
+        }
       end,
-      preview = footer_preview(preview_of),
+      preview = footer_on and footer_preview(preview_of) or function() return false end,
       filter = {},
       actions = {
         confirm = function(picker, pitem)
@@ -540,7 +560,7 @@ local function pick_deps(all_deps)
       w_id = math.max(w_id, #(d.id or ""))
     end
     w_id = math.max(math.min(w_id, 24), 8)
-    local w_name = CARD_W - 8 - w_id - 2
+    local w_name = CARD_W - 8 - 2 - w_id - 2 -- 再扣掉 ▸ 指针列
 
     Snacks.picker.pick({
       source = "select",
@@ -563,11 +583,12 @@ local function pick_deps(all_deps)
       format = function(item, picker)
         local d = item.item or item
         local cur = picker and picker.list and picker.list:current()
-        local hl = cur == item and "WizSel" or "WizKey"
+        local is_cur = cur == item
         return {
-          { cut(d.id, w_id), hl },
+          { is_cur and "▸ " or "  ", is_cur and "WizMarker" or "WizDim" },
+          { cut(d.id, w_id), is_cur and "WizSel" or "WizKey" },
           { "  " },
-          { cut_last(d.name, w_name), cur == item and "WizSel" or "WizHint" },
+          { cut_last(d.name, w_name), is_cur and "WizSel" or "WizHint" },
         }
       end,
       -- 底部说明行：名称 · [分组] · 完整描述（一行，超长截断）
@@ -646,14 +667,7 @@ local function flow()
     if v.id == "21" then hint = "LTS，推荐" elseif v.id == "17" then hint = "最低可用" end
     jv_items[i] = { id = v.id, hint = hint }
   end
-  local jv = pick_one(jv_items, "3. Java 版本", {
-    preview = function(d)
-      return {
-        { d.hint or "", "WizHint" },
-        { "   ·   本机 JDK 26，jdtls 要求 17+", "WizDim" },
-      }
-    end,
-  })
+  local jv = pick_one(jv_items, "3. Java 版本")
   if not jv then return cancel() end
 
   local boots = boot_options(meta)
@@ -732,6 +746,7 @@ local function flow()
     { id = "redo", hint = "回到第 1 步，重新走一遍向导" },
     { id = "no",   hint = "取消，不留任何文件" },
   }, "确认创建", {
+    footer = true,
     preview = function(d)
       if d.id == "go" then
         return {
