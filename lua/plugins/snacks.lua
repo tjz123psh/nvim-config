@@ -16,6 +16,10 @@ return {
     opts = {
       picker = {
         enabled = true,
+        -- 不接管 vim.ui.select：snacks 的 ui_select 也用 source="select"，
+        -- 会和向导的 picker 互相 dedupe 顶掉（同 source 活动实例会被关闭、
+        -- 新实例返回 nil → 协程挂起）。vim.ui.select 留给 dressing。
+        ui_select = false,
       },
 
       -- 与现有插件冲突的，全部关掉

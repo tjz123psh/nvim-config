@@ -64,8 +64,9 @@ return {
         max_height = 18,
         win_options = {
           winblend = 0,
-          -- 与向导/noice 统一：实底深卡 + 粉边，选中行 mauve
-          winhighlight = "Normal:WizBg,FloatBorder:WizBorder,CursorLine:WizCursorLine",
+          -- 与向导/noice 统一：透明底 + 粉边；选中行只用文字色
+          -- （WizCursorLine 的底色条+下划线是给 picker 设计的，菜单里显脏）
+          winhighlight = "Normal:WizBg,FloatBorder:WizBorder,CursorLine:WizMenuSel,FloatTitle:WizTitle",
         },
       },
     },

@@ -55,9 +55,13 @@ end, { force = true, desc = "打开 LSP 日志文件" })
 -- 只有它的 config 跑过才会有 :SpringBootCreate，导致刚打开 nvim 时
 -- 直接输 :SpringBootCreate 报 Not an editor command（而 <leader>sp 一直可用）。
 -- 在 core 里主动注册一次，让两种入口都即时可用。
-pcall(function()
+local ok_wiz, err_wiz = pcall(function()
   require("core.spring_wizard").setup()
 end)
+if not ok_wiz then
+  -- 静默吞错的后果是 dressing/向导全部回退主题默认观感且毫无线索
+  vim.notify("Spring Boot 向导加载失败：" .. tostring(err_wiz), vim.log.levels.ERROR)
+end
 
 -- 项目列表 --------
 

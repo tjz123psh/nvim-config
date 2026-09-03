@@ -2,7 +2,7 @@
 -- Spring Boot 项目向导（v6 单卡片 · noice 粉系）
 -- ============================================================================
 -- 与 IDEA New Project 对话框对齐的 11 步向导：
---   snacks.picker  全部选择步骤（自绘 90 列单卡片：input + list + 底部说明行）
+--   snacks.picker  全部选择步骤（自绘自适应单卡片：input + list + 底部说明行）
 --   dressing.nvim  文本输入（LSP 重命名等共用同款粉卡，组定义见 SNACKS_HL）
 --
 -- v6 变更（相对 v5，按用户 noice 截图推倒重构）：
@@ -22,55 +22,49 @@ local M = {}
 ----------------------------------------------------------------------------
 -- 1. 主题与共享文案（改样式只动这里）
 ----------------------------------------------------------------------------
-local UI = {
-  dot    = "·",
-  check  = "✓",
-  done   = "✅",
-  arrow  = "↪",
-  feed   = "❯",
-  sep    = "　",
-  step   = function(i, total) return string.format("[%d/%d]", i, total) end,
-}
+-- （v3 时代的 UI 常量表 / QUICK_TIPS / TOTAL_STEPS 全部零引用，v6.4 清理）
 
--- 常用依赖的推荐组合，选择 ⑥ 时提示；不进列表，只做开场提示
-local QUICK_TIPS = {
-  ["web"] = "REST 接口必备",
-  ["data-jpa"] = "要持久化就一起选个库（h2）",
-  ["h2"] = "开发期内存库",
-  ["devtools"] = "改代码自动重启",
-  ["validation"] = "参数校验 @Valid",
-  ["lombok"] = "少写样板代码",
-}
-
-local function tip(id)
-  return QUICK_TIPS[id] or ""
-end
-
-local TOTAL_STEPS = 11
+-- 前向声明：load_meta（异步版）在文件后段才定义的 bridge 之前，
+-- Lua local 作用域不到 → 直接跑会把 bridge 当 nil 全局，flow 静默死掉
+local bridge
 
 local meta_cache = nil
+local meta_cached_at = 0
+local META_TTL = 600  -- 秒；跨天会话不吃过期依赖表
 
 ----------------------------------------------------------------------------
 -- 2. start.spring.io 元数据
 ----------------------------------------------------------------------------
+-- 异步版：旧实现 vim.system():wait() 同步等待，弱网时整个 Neovim 冻结最长
+-- 25 秒。现在走 bridge（flow 本来就在协程里），UI 保持响应；超时降到 8 秒。
 local function load_meta()
-  if meta_cache then
-    return meta_cache
-  end
-  local ok, res = pcall(function()
-    return vim.system({
-      "curl", "-s", "--max-time", "25", "https://start.spring.io/metadata/client",
-    }, { text = true }):wait()
+  return bridge(function(done)
+    if meta_cache and (vim.uv.now() / 1000 - meta_cached_at) < META_TTL then
+      done(meta_cache)
+      return
+    end
+    local oksys = pcall(vim.system, {
+      "curl", "-s", "--max-time", "8", "https://start.spring.io/metadata/client",
+    }, { text = true }, function(res)
+      vim.schedule(function()
+        if not res or res.code ~= 0 or not res.stdout or res.stdout == "" then
+          done(nil, "取不到 start.spring.io 元数据（网络或代理问题）")
+          return
+        end
+        local okd, decoded = pcall(vim.fn.json_decode, res.stdout)
+        if okd and type(decoded) == "table" and decoded.bootVersion then
+          meta_cache = decoded
+          meta_cached_at = vim.uv.now() / 1000
+          done(decoded)
+        else
+          done(nil, "元数据解析失败")
+        end
+      end)
+    end)
+    if not oksys then
+      done(nil, "找不到 curl 命令")
+    end
   end)
-  if not ok or not res or res.code ~= 0 or not res.stdout or res.stdout == "" then
-    return nil, "取不到 start.spring.io 元数据（网络或代理问题）"
-  end
-  local okd, decoded = pcall(vim.fn.json_decode, res.stdout)
-  if not okd or type(decoded) ~= "table" or not decoded.bootVersion then
-    return nil, "元数据解析失败"
-  end
-  meta_cache = decoded
-  return decoded
 end
 
 -- start.spring.io 的 bootVersion id 带 .RELEASE 后缀，但仓库里只有去后缀的版本
@@ -79,8 +73,12 @@ local function normalize_boot(id)
   return (id:gsub("%.RELEASE$", ""))
 end
 
+-- 预发布形态实测有 4.2.0.M1 / 4.2.0.BUILD-SNAPSHOT / 4.1.1.RELEASE，
+-- Maven 风格连字符（4.3.0-RC1、4.3.0-M5）也要判住，否则会被标成"最新正式版"
 local function is_prerelease(id)
-  return id:match("SNAPSHOT") ~= nil or id:match("%.M%d+$") ~= nil or id:match("%.RC%d+$") ~= nil
+  return id:find("SNAPSHOT") ~= nil
+    or id:match("[%-._][MR][%d]+$") ~= nil
+    or id:match("[%-._]BUILD$") ~= nil
 end
 
 local function vcmp(a, b)
@@ -119,21 +117,13 @@ local function boot_options(meta)
     if type(v.id) == "string" then
       local real = normalize_boot(v.id)
       local pre = is_prerelease(v.id)
-      out[#out + 1] = {
-        id = v.id,
-        real = real,
-        pre = pre,
-        label = pre and (real .. "  · 预发布") or (real .. "  · 正式稳定"),
-      }
+      out[#out + 1] = { id = v.id, real = real, pre = pre }
     end
   end
   table.sort(out, function(a, b)
     if a.pre ~= b.pre then return not a.pre end
     return vcmp(a.real, b.real) > 0
   end)
-  if #out > 0 and not out[1].pre then
-    out[1].label = out[1].real .. "  · 最新正式版"
-  end
   return out
 end
 
@@ -141,7 +131,7 @@ local function simple_options(node)
   local out = {}
   for _, v in ipairs(node and node.values or {}) do
     if type(v.id) == "string" then
-      out[#out + 1] = { id = v.id, label = v.id }
+      out[#out + 1] = { id = v.id }
     end
   end
   return out
@@ -210,6 +200,15 @@ local function sanitize_package(s)
   out = out:gsub("^%d", "_")
   return out
 end
+
+-- group/artifact/name 的合法性：字母数字点横线下划线，禁路径分隔、禁 - 开头
+-- （- 开头会被 spring CLI 当选项解析，实测 'offline is not a recognized option'；
+--  含 / 或 .. 会把项目写到 parent 之外——CLI 照建不误 exit 0，静默目录逃逸）
+local function valid_segment(s)
+  if type(s) ~= "string" or s == "" or s == "." or s == ".." then return false end
+  if s:sub(1, 1) == "-" then return false end
+  return s:match("^[%w%._%-]+$") ~= nil
+end
 -- 4. UI 桥与视觉主题
 -- ----------------------------------------------------------------------------
 
@@ -223,11 +222,11 @@ local NEON = {
   border  = "#F38BA8",  -- noice 粉
   borderB = "#F5A0B8",
   borderC = "#E893AC",
-  sun     = "#F5C2E7",  -- 选中行文字（mauve）
+  sun     = "#F5C2E7",  -- 选中行文字（catppuccin pink）
   white   = "#CDD6F4",  -- 主文字（text）
   grey    = "#A6ADC8",  -- 次文字（subtext1）
   dim     = "#585B70",  -- 未选中 □ / 空态（overlay0）
-  magenta = "#CBA6F7",  -- 过滤匹配词 / 计数器（lavender）
+  magenta = "#CBA6F7",  -- 过滤匹配词 / 计数器（catppuccin mauve）
   amber   = "#FAB387",  -- 分组徽章 / 行内 hint（peach）
   green   = "#A6E3A1",  -- ❯ 提示符（catppuccin green）
   rowbg   = "#313244",  -- （弃用）旧选中行底
@@ -246,6 +245,7 @@ local HL_DEFS = {
   { "WizMagenta",   { fg = NEON.magenta, bold = true } },
   { "WizMarker",    { fg = NEON.border, bold = true } },  -- 行首 ▸ 指针
   { "WizPeach",     { fg = NEON.amber } },                -- 行内 hint（不加粗）
+  { "WizMenuSel",   { fg = NEON.sun, bold = true } },     -- dressing 菜单当前行（纯文字色）
 }
 
 -- 根治「边框一直是主题蓝」：snacks 的 winhighlight 不用我们给的字符串
@@ -257,14 +257,14 @@ local SNACKS_HL = {
   { "SnacksPicker",           { bg = "NONE", fg = NEON.white } },   -- NormalFloat 基座：透明底
   { "SnacksPickerBorder",     { fg = NEON.border } },               -- 所有窗口边框
   { "SnacksPickerTitle",      { fg = NEON.border, bold = true } }, -- 窗口标题
-  -- 当前行不再画底色条（透明底上像膏药）：标注改由行首 ▸ + 文字 mauve 完成
-  { "SnacksPickerCursorLine",     { bg = "NONE" } },
-  { "SnacksPickerListCursorLine", { bg = "NONE" } },
+  -- ⚠ SnacksPicker*CursorLine 不在此列：它们是全局基座（snacks 所有 picker
+  -- 的当前行都链过来），常驻覆盖会杀掉其它 picker 的选中行高亮。
+  -- 向导会话内的临时压制见 TRANSIENT_HL（随 start/stop_pulse 应用与还原）。
   { "SnacksPickerFooter",     { fg = NEON.dim } },
   { "SnacksTitle",            { fg = NEON.border, bold = true } }, -- box 边框窗标题
   { "SnacksNormal",           { bg = "NONE", fg = NEON.white } },  -- box 边框窗：透明底
   { "SnacksNormalNC",         { bg = "NONE", fg = NEON.white } },
-  { "SnacksPickerTotals",     { fg = NEON.magenta, bold = true } }, -- 计数器 lavender
+  { "SnacksPickerTotals",     { fg = NEON.magenta, bold = true } }, -- 计数器 mauve
   { "SnacksPickerPrompt",     { fg = NEON.green, bold = true } },    -- ❯ 提示符 green
   { "SnacksPickerMatch",      { fg = NEON.magenta, bold = true } },-- 过滤匹配词
   { "SnacksPickerSelected",   { fg = NEON.border, bold = true } }, -- ● 已选
@@ -283,22 +283,58 @@ end
 -- 边框呼吸：WizBorder 在三个粉色之间缓慢过渡（1.2s 一步）
 local border_timer = nil
 local border_step = 0
+-- generation 守卫：stop 后 schedule 里排队的最后一发改色不能晚于 reset 落地
+-- （声明必须在使用它的 stop/start 之前——local 作用域坑，上一版就栽过）
+local pulse_gen = 0
+
+-- 向导会话专属的高亮压制：我们的当前行标注是行首 ▸ + 文字色（format 里画），
+-- 不需要底色条；但 SnacksPicker*CursorLine 是全局基座，常驻改会误伤其它
+-- picker。所以只在向导开着的窗口期内压成 NONE，关掉就还原原 link。
+local TRANSIENT_HL = {
+  { "SnacksPickerCursorLine",     { bg = "NONE" } },
+  { "SnacksPickerListCursorLine", { bg = "NONE" } },
+}
+local transient_saved = {}
+local function apply_transient_hl()
+  for _, d in ipairs(TRANSIENT_HL) do
+    if transient_saved[d[1]] == nil then
+      transient_saved[d[1]] = vim.api.nvim_get_hl(0, { name = d[1], link = true })
+    end
+    vim.api.nvim_set_hl(0, d[1], d[2])
+  end
+end
+local function restore_transient_hl()
+  for _, d in ipairs(TRANSIENT_HL) do
+    local saved = transient_saved[d[1]]
+    if saved and next(saved) ~= nil then
+      pcall(vim.api.nvim_set_hl, 0, d[1], saved)
+    end
+    transient_saved[d[1]] = nil
+  end
+end
+
 local function stop_pulse()
+  pulse_gen = pulse_gen + 1
   if border_timer then
     pcall(vim.uv.timer_stop, border_timer)
     pcall(vim.uv.timer_close, border_timer)
     border_timer = nil
   end
   pcall(vim.api.nvim_set_hl, 0, "WizBorder", { fg = NEON.border })
+  restore_transient_hl()
 end
 local function start_pulse()
   stop_pulse()
+  apply_transient_hl()
+  pulse_gen = pulse_gen + 1
+  local my_gen = pulse_gen
   border_step = 0
   border_timer = vim.uv.new_timer()
   border_timer:start(0, 1200, function()
     border_step = border_step + 1
     local c = ({ NEON.border, NEON.borderB, NEON.borderC })[(border_step % 3) + 1]
     vim.schedule(function()
+      if my_gen ~= pulse_gen then return end
       pcall(vim.api.nvim_set_hl, 0, "WizBorder", { fg = c })
     end)
   end)
@@ -313,10 +349,11 @@ end
 --   ──────────────────────────────────────────
 --   名称 · [分组] · 完整描述（当前项，一行截断）│
 --   ╰──────────────────────────────────────────╯
--- 关键发现：layout.lua 用 Snacks.win.resolve(box, ...) 建 box 的边框窗口，
--- box 表上的字段直通那个窗口 → winhighlight 必须写在 box 上边框才是粉色。
--- 之前边框一直是主题蓝，就是因为 default/select 预设把边框画在 box 层，
--- 而 winhighlight 只给了 input/list/preview 三个内容窗口，根本没够到边框。
+-- 边框粉色的真实来源（子代理对照 snacks 源码验证过）：box 表顶层的
+-- winhighlight 字符串是死配置（Snacks.win 只消费 wo.winhighlight），
+-- 生效的是 picker.lua 给 box 窗合并的 winhl("SnacksPickerBox") 链接链
+-- → SnacksPickerBoxBorder → SnacksPickerBorder，被我们启动时定义的非
+-- default 实色截胡。所以配色只写在 SNACKS_HL 一处，这里不放死配置。
 -- 卡片宽度自适应：目标 104 列，终端窄就让到 columns-2（snacks 也会钳制）。
 -- id 列必须完整不截断（主键），最长的 AI id 有 42 字符，所以 90 列不够。
 local function card_w() return math.min(104, vim.o.columns - 2) end
@@ -328,7 +365,9 @@ local FOOT_NS = vim.api.nvim_create_namespace("wiz_footer")
 local function card_layout(list_h, footer_on)
   footer_on = footer_on ~= false
   return {
-    hidden = footer_on and nil or { "preview" },
+    -- ⚠ Lua 坑：x and nil or y 恒等于 y（and nil 永远短路到 or），
+    -- 之前这样写导致详情区自 v6.2 起永远被隐藏。必须先判 not 再选表。
+    hidden = (not footer_on) and { "preview" } or nil,
     layout = {
       box = "vertical",
       backdrop = false,
@@ -338,7 +377,6 @@ local function card_layout(list_h, footer_on)
       border = CARD_BORDER,
       title = "{title}",
       title_pos = "center",
-      winhighlight = "FloatBorder:WizBorder,FloatTitle:WizTitle,Normal:WizBg",
       { win = "input", height = 1, border = "bottom" },
       { win = "list", border = "none" },
       { win = "preview", height = FOOT_LINES, border = "top" },
@@ -351,11 +389,18 @@ end
 -- 注意：这里的 winhighlight 写了也没用（init_layout 用 winhl() 生成的覆盖），
 -- 变色全走上面 SNACKS_HL 的基座组。win 配置只管 backdrop / wo / minimal。
 local function win_config()
+  -- keys 必须放 win.input / win.list——snacks 只消费这两处（顶层 Config 没有
+  -- keys 字段，写 pick{keys=...} 是死配置）。C-s 完成 = 文档承诺的行为。
+  -- 必须显式给 mode：snacks 的字符串 spec 默认只注册 normal（win.lua:288），
+  -- 而输入框常态是 insert——只绑 n 的话 insert 下按 C-s 没反应
+  local ks = { ["<c-s>"] = { "confirm", mode = { "n", "i" } } }
   return {
     input = {
+      keys = ks,
       wo = { winblend = 0, number = false, signcolumn = "no", wrap = false },
     },
     list = {
+      keys = ks,
       -- 不设 backdrop：透明底后压暗反而成了一块死黑，和「跟其他地方一样」矛盾
       wo = { winblend = 0, number = false, relativenumber = false, signcolumn = "no", wrap = false },
     },
@@ -367,7 +412,8 @@ local function win_config()
 end
 
 -- 底部说明区：固定 FOOT_LINES 行（卡片高度恒定），逐字换行 + 分段着色
-local function footer_width() return card_w() - 4 end
+-- 左右边框各占 1 列（preview 窗内容宽 = 卡片宽 - 2）
+local function footer_width() return card_w() - 2 end
 
 -- UTF-8 逐字符展平；宽度按显示列算：ASCII=1，其余（CJK 等）=2
 local function flatten_chunks(chunks)
@@ -438,7 +484,7 @@ local function footer_preview(preview_of)
 end
 
 -- dressing 的回调可能同步也可能异步触发，两种顺序都要接住，否则流程卡死
-local function bridge(caller)
+bridge = function(caller)
   local co = coroutine.running()
   local arrived, data = false, nil
   local function deliver(...)
@@ -502,9 +548,16 @@ local function pick_one(items, title, opts)
     return { { d.hint or "", "WizHint" } }
   end
   return bridge(function(done)
+    if #items == 0 then
+      -- 元数据异常 ≠ 用户取消：给明确错误，别冒充「已取消」
+      vim.schedule(function()
+        vim.notify("向导内部错误：" .. title .. " 没有可选项（元数据异常）", vim.log.levels.ERROR)
+        done(nil)
+      end)
+      return
+    end
     local completed = false
-    start_pulse()
-    Snacks.picker.pick({
+    local picker = Snacks.picker.pick({
       source = "select",
       title = title,
       layout = card_layout(math.max(math.min(#items, 10), 2), footer_on),
@@ -539,17 +592,15 @@ local function pick_one(items, title, opts)
       end,
       preview = footer_on and footer_preview(preview_of) or function() return false end,
       filter = {},
-      -- 显式绑 <C-s> 完成（snacks 默认 <c-s> 是 edit_split，文档承诺过 C-s=Enter）
-      keys = { ["<c-s>"] = "confirm" },
       actions = {
-        confirm = function(picker, pitem)
+        confirm = function(pk, pitem)
           -- 必须先置守卫再 close：否则 close 触发的 on_close 会抢先
           -- deliver(nil)，协程带着 nil 恢复，流程误判成「用户取消」
           if completed then return end
           completed = true
           stop_pulse()
           local chosen = pitem and pitem.item
-          picker:close()
+          pcall(function() pk:close() end)
           vim.schedule(function() done(chosen) end)
         end,
       },
@@ -560,6 +611,13 @@ local function pick_one(items, title, opts)
         vim.schedule(function() done(nil) end)
       end,
     })
+    -- snacks 对同 source 的活动 picker 会静默 close 旧的并返回 nil
+    -- （picker/init.lua dedupe）——不兜底就是协程永久挂起 + timer 永转
+    if not picker then
+      vim.schedule(function() done(nil) end)
+      return
+    end
+    start_pulse()
   end)
 end
 
@@ -567,7 +625,6 @@ end
 local function pick_deps(all_deps)
   return bridge(function(done)
     local completed = false
-    start_pulse()
 
     -- id 是主键：列宽 = 实际最长 id，绝不截断（最长的 AI id 42 字符）。
     -- 名称列拿剩余，截断用 …（完整名在底部详情区）；窄终端时名称优先让位。
@@ -578,10 +635,10 @@ local function pick_deps(all_deps)
     w_id = math.max(w_id, 8)
     local w_name = math.max(card_w() - 12 - w_id - 2, 12)
 
-    Snacks.picker.pick({
+    local picker = Snacks.picker.pick({
       source = "select",
       title = "6. 选择依赖",
-      layout = card_layout(14),
+      layout = card_layout(14, true),
       win = win_config(),
       -- 每行都显示勾选框：○ 未选 / ● 已选（Tab 切换，snacks 内置列）
       formatters = { selected = { show_always = true, unselected = true } },
@@ -618,17 +675,22 @@ local function pick_deps(all_deps)
         }
       end),
       filter = {},
-      keys = { ["<c-s>"] = "confirm" },
       actions = {
-        confirm = function(picker)
+        confirm = function(pk)
           if completed then return end
           completed = true
           stop_pulse()
+          local sel = pk.list and pk.list.selected or {}
+          -- snacks 内部 selected 目前是数组（list.lua table.insert/tbl_filter）；
+          -- 若上游改成 map，ipairs 会静默得 0 项——断言把它变成显式报错
+          if not vim.islist(sel) then
+            vim.notify("向导内部错误：snacks 多选结构变化（selected 非数组），请检查 snacks 版本", vim.log.levels.ERROR)
+          end
           local ids = {}
-          for _, it in ipairs(picker.list.selected or {}) do
+          for _, it in ipairs(sel) do
             if it.item and it.item.id then ids[#ids + 1] = it.item.id end
           end
-          picker:close()
+          pcall(function() pk:close() end)
           vim.schedule(function() done(ids) end)
         end,
       },
@@ -639,6 +701,11 @@ local function pick_deps(all_deps)
         vim.schedule(function() done(nil) end)
       end,
     })
+    if not picker then
+      vim.schedule(function() done(nil) end)
+      return
+    end
+    start_pulse()
   end)
 end
 
@@ -646,7 +713,11 @@ end
 -- 6. 主流程（字段顺序对齐 IDEA New Project）
 ----------------------------------------------------------------------------
 local function find_main_class(dir)
-  for _, pat in ipairs({ "src/main/java/**/*Application.java", "src/main/java/**/*.java" }) do
+  -- 语言步可以选 kotlin，主类模式也得跟上，否则建完 kotlin 项目不开主类
+  for _, pat in ipairs({
+    "src/main/java/**/*Application.java", "src/main/java/**/*.java",
+    "src/main/kotlin/**/*Application.kt", "src/main/kotlin/**/*.kt",
+  }) do
     local found = vim.fn.globpath(dir, pat, true, true)
     if found[1] then return found[1] end
   end
@@ -714,17 +785,38 @@ local function flow()
   if not deps then return cancel() end
 
   local group = ask("7. Group ID（组织反写域名）: ", "com.example")
-  if not group or group == "" then return cancel() end
+  if not group then return cancel() end
+  if not valid_segment(group) then
+    vim.notify("Group ID 不合法（只允许字母数字和 . - _，不能以 - 开头）：" .. group, vim.log.levels.ERROR)
+    return
+  end
   local artifact = ask("8. Artifact ID（小写，建议无连字符）: ", "demo")
-  if not artifact or artifact == "" then return cancel() end
+  if not artifact then return cancel() end
+  if not valid_segment(artifact) then
+    vim.notify("Artifact ID 不合法（不能含 / 或空格，不能以 - 开头）：" .. artifact, vim.log.levels.ERROR)
+    return
+  end
   local name = ask("9. 项目名 / 目录名: ", artifact)
-  if not name or name == "" then return cancel() end
+  if not name then return cancel() end
+  if not valid_segment(name) then
+    vim.notify("项目名不合法（不能含 / 或空格，不能以 - 开头，不能是 . 或 ..）：" .. name, vim.log.levels.ERROR)
+    return
+  end
   local pkgname = ask("10. 包名: ", sanitize_package(group .. "." .. artifact))
-  if not pkgname or pkgname == "" then return cancel() end
+  if not pkgname then return cancel() end
   local parent = ask("11. 创建到哪个目录下: ", vim.fn.getcwd())
-  if not parent or parent == "" then return cancel() end
-  if vim.uv.fs_stat(parent) == nil then
-    vim.notify("目录不存在：" .. parent, vim.log.levels.ERROR)
+  if not parent then return cancel() end
+  parent = vim.fn.expand(parent)
+  local pstat = vim.uv.fs_stat(parent)
+  if not pstat or pstat.type ~= "directory" then
+    -- fs_stat 对普通文件也返回非 nil——必须查 type，否则 vim.system 坏 cwd
+    -- 抛错后被误报成「找不到 spring 命令」
+    vim.notify("目录不存在或不是目录：" .. parent, vim.log.levels.ERROR)
+    return
+  end
+  -- 目标已存在时提前拦截：spring init 会失败/留下半截目录，不如在这里说清楚
+  if vim.uv.fs_stat(parent .. "/" .. name) ~= nil then
+    vim.notify("目标目录已存在：" .. parent .. "/" .. name .. "（换个项目名或先删掉它）", vim.log.levels.ERROR)
     return
   end
 
@@ -802,7 +894,7 @@ end
 
 -- tmux 真机复现的 bug：snacks 的 List:render() 只在 dirty（top 滚动变化）时
 -- 重写行，纯光标移动不设 dirty——原生靠 CursorLine 显示当前行。而我们的
--- 当前行标注（▸ + mauve 文字）算在 format() 里，不重渲染就原地卡死，
+-- 当前行标注（▸ + 粉色文字）算在 format() 里，不重渲染就原地卡死，
 -- 表现为「按 ↓ 上下移动不了」（内部其实在动）。
 -- 补丁：渲染前发现 cursor 变了就先置 dirty，强制重跑可见行（≤14 行，轻）。
 -- 注意时机：setup() 在 init.lua 阶段跑，那时 lazy 还没把 snacks 加进
@@ -823,19 +915,40 @@ local function patch_list_rerender_on_move()
 end
 
 function M.create()
+  -- 重入守卫：连开两个向导时，第二个 pick 会撞上 snacks 同 source dedupe
+  -- （close 第一个、返回 nil）→ 两边协程互相踩。直接拒绝第二个。
+  if M._running then
+    vim.notify("向导已在运行中——先完成或 Esc 退出当前那个", vim.log.levels.WARN)
+    return
+  end
+  M._running = true
   define_highlights()
   patch_list_rerender_on_move()
-  local ok, rerr = coroutine.resume(coroutine.create(flow))
-  if not ok then
-    vim.notify("向导内部错误：" .. tostring(rerr), vim.log.levels.ERROR)
+  local co = coroutine.create(function()
+    local ok, rerr = pcall(flow)
+    M._running = false
+    if not ok then
+      stop_pulse()  -- 兜底：任何中途抛错都不许留呼吸 timer（R2 实测坐实的泄漏）
+      vim.notify("向导内部错误：" .. tostring(rerr), vim.log.levels.ERROR)
+    end
+  end)
+  local okr, err = coroutine.resume(co)
+  if not okr then
+    M._running = false
+    stop_pulse()
+    vim.notify("向导启动失败：" .. tostring(err), vim.log.levels.ERROR)
   end
 end
 
 function M.setup()
   define_highlights()
   patch_list_rerender_on_move()
-  -- 配色直写十六进制但 ColorScheme 会清掉非 default 组，换主题时补一次
+  -- 配色直写十六进制但 ColorScheme 会清掉非 default 组，换主题时补一次。
+  -- 必须挂 group：setup() 被 commands.lua 和 springboot.lua 两处调用，
+  -- 无 group 会叠两份 autocmd
+  local grp = vim.api.nvim_create_augroup("SpringWizardHL", { clear = true })
   vim.api.nvim_create_autocmd("ColorScheme", {
+    group = grp,
     desc = "重建 Spring Boot 向导的派生高亮组",
     callback = define_highlights,
   })
