@@ -785,8 +785,31 @@ local function flow()
   vim.notify("已创建 " .. dir .. "　jdtls 正在导入依赖（首次 10~60 秒），稍后 :LspInfo 确认", vim.log.levels.INFO)
 end
 
+-- tmux 真机复现的 bug：snacks 的 List:render() 只在 dirty（top 滚动变化）时
+-- 重写行，纯光标移动不设 dirty——原生靠 CursorLine 显示当前行。而我们的
+-- 当前行标注（▸ + mauve 文字）算在 format() 里，不重渲染就原地卡死，
+-- 表现为「按 ↓ 上下移动不了」（内部其实在动）。
+-- 补丁：渲染前发现 cursor 变了就先置 dirty，强制重跑可见行（≤14 行，轻）。
+-- 注意时机：setup() 在 init.lua 阶段跑，那时 lazy 还没把 snacks 加进
+-- runtimepath，require 会静默失败——所以 create() 里也要兜底调一次。
+local function patch_list_rerender_on_move()
+  local ok, List = pcall(require, "snacks.picker.core.list")
+  if not ok or type(List) ~= "table" or List.__wiz_patched then return end
+  local orig_render = List.render
+  List.render = function(self, ...)
+    if self.cursor and self.__wiz_cursor ~= self.cursor and not self.dirty then
+      self.dirty = true
+    end
+    local ret = orig_render(self, ...)
+    self.__wiz_cursor = self.cursor
+    return ret
+  end
+  List.__wiz_patched = true
+end
+
 function M.create()
   define_highlights()
+  patch_list_rerender_on_move()
   local ok, rerr = coroutine.resume(coroutine.create(flow))
   if not ok then
     vim.notify("向导内部错误：" .. tostring(rerr), vim.log.levels.ERROR)
@@ -795,8 +818,8 @@ end
 
 function M.setup()
   define_highlights()
-  -- 我们的组是 link 到语义组的，换主题后 link 关系仍在，但 default=true 的
-  -- 定义会被新主题的清空逻辑覆盖，所以换主题时补一次
+  patch_list_rerender_on_move()
+  -- 配色直写十六进制但 ColorScheme 会清掉非 default 组，换主题时补一次
   vim.api.nvim_create_autocmd("ColorScheme", {
     desc = "重建 Spring Boot 向导的派生高亮组",
     callback = define_highlights,
