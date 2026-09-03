@@ -192,7 +192,7 @@ local function cut(text, width)
     return text .. string.rep(" ", width - #text)
   end
   if width <= 1 then return string.sub(text, 1, width) end
-  return string.sub(text, 1, width - 1) .. "~"
+  return string.sub(text, 1, width - 1) .. "\226\128\166"
 end
 
 -- 仅用于最后一列的截断：… 占 3 字节 1 列，telescope 算列位置用的是字节长度，
@@ -317,7 +317,9 @@ end
 -- box 表上的字段直通那个窗口 → winhighlight 必须写在 box 上边框才是粉色。
 -- 之前边框一直是主题蓝，就是因为 default/select 预设把边框画在 box 层，
 -- 而 winhighlight 只给了 input/list/preview 三个内容窗口，根本没够到边框。
-local CARD_W = 90
+-- 卡片宽度自适应：目标 104 列，终端窄就让到 columns-2（snacks 也会钳制）。
+-- id 列必须完整不截断（主键），最长的 AI id 有 42 字符，所以 90 列不够。
+local function card_w() return math.min(104, vim.o.columns - 2) end
 local FOOT_LINES = 3   -- 底部说明区行数（卡片高度恒定）
 local CARD_BORDER = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
 local FOOT_NS = vim.api.nvim_create_namespace("wiz_footer")
@@ -330,7 +332,7 @@ local function card_layout(list_h, footer_on)
     layout = {
       box = "vertical",
       backdrop = false,
-      width = CARD_W,
+      width = card_w(),
       -- input 1 + list + footer(3|0) + 上下边框 2
       height = list_h + (footer_on and FOOT_LINES or 0) + 3,
       border = CARD_BORDER,
@@ -365,7 +367,7 @@ local function win_config()
 end
 
 -- 底部说明区：固定 FOOT_LINES 行（卡片高度恒定），逐字换行 + 分段着色
-local function footer_width() return CARD_W - 4 end
+local function footer_width() return card_w() - 4 end
 
 -- UTF-8 逐字符展平；宽度按显示列算：ASCII=1，其余（CJK 等）=2
 local function flatten_chunks(chunks)
@@ -553,14 +555,14 @@ local function pick_deps(all_deps)
     local completed = false
     start_pulse()
 
-    -- 两列布局：id 列按实际最长 id 封顶 24，名称列拿剩余全部宽度。
-    -- 列表可用宽 = 卡片 90 - 边框 2 - 勾选列 2 - 内衬 2
+    -- id 是主键：列宽 = 实际最长 id，绝不截断（最长的 AI id 42 字符）。
+    -- 名称列拿剩余，截断用 …（完整名在底部详情区）；窄终端时名称优先让位。
     local w_id = 0
     for _, d in ipairs(all_deps) do
       w_id = math.max(w_id, #(d.id or ""))
     end
-    w_id = math.max(math.min(w_id, 24), 8)
-    local w_name = CARD_W - 8 - 2 - w_id - 2 -- 再扣掉 ▸ 指针列
+    w_id = math.max(w_id, 8)
+    local w_name = math.max(card_w() - 12 - w_id - 2, 12)
 
     Snacks.picker.pick({
       source = "select",
