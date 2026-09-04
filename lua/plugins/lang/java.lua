@@ -72,6 +72,13 @@ return {
         end
       end
 
+      -- Spring Boot Tools：把官方 jdtls 扩展作为 bundle 注入现有 jdtls。
+      -- spring-boot.nvim 会从 Mason 的 vscode-spring-boot-tools 读取这些 jar。
+      local ok_spring, spring_boot = pcall(require, "spring_boot")
+      if ok_spring then
+        vim.list_extend(opts.init_options.bundles, spring_boot.java_extensions())
+      end
+
       -- Lombok：Spring Boot 项目几乎必用，没有 agent 时 @Data/@Builder/@Slf4j
       -- 会报一堆"找不到 getXxx()"的假错误。通过 jdtls 的 --jvm-arg 挂 javaagent。
       local lombok_jar = vim.fn.stdpath("data") .. "/java-extras/lombok.jar"
