@@ -22,13 +22,15 @@ return {
       "  ██║ ╚████║███████╗╚██████╔╝ ╚████╔╝ ██║██║ ╚═╝ ██║",
       "  ╚═╝  ╚═══╝╚══════╝ ╚═════╝   ╚═══╝  ╚═╝╚═╝     ╚═╝",
     }
-    dashboard.section.header.val = vim.o.columns >= 68 and logo or { "NEOVIM" }
+    -- logo 实测显示宽 52 列，留 6 列余量即可；原来卡 68 会让 58~67 列窗口退化成纯文字
+    dashboard.section.header.val = vim.o.columns >= 58 and logo or { "NEOVIM" }
 
     -- 快捷按钮
-    local config_search = "<cmd>Telescope find_files cwd=" .. vim.fn.fnameescape(vim.fn.stdpath("config")) .. "<cr>"
+    -- 全部改用 snacks picker（fzf 风格紧凑列表），和 <leader>f* 一套观感
+    local config_search = "<cmd>lua require('snacks').picker.files({ cwd = vim.fn.stdpath('config') })<cr>"
     dashboard.section.buttons.val = {
-      dashboard.button("f", "  查找文件", "<cmd>Telescope find_files<cr>"),
-      dashboard.button("r", "  最近文件", "<cmd>Telescope oldfiles<cr>"),
+      dashboard.button("f", "  查找文件", "<cmd>lua require('snacks').picker.files()<cr>"),
+      dashboard.button("r", "  最近文件", "<cmd>lua require('snacks').picker.recent()<cr>"),
       dashboard.button("c", "  Neovim 配置", config_search),
       dashboard.button("p", "  项目列表", "<cmd>Projects<cr>"),
       dashboard.button("n", "  新建文件", "<cmd>ene <bar> startinsert<cr>"),

@@ -18,10 +18,13 @@ return {
   },
   opts = {
     popup_border_style = "rounded",
-    use_popups_for_input = false, -- 使用 vim.ui.input，由 dressing.nvim 接管统一风格
+    use_popups_for_input = false, -- 走 vim.ui.input，由 snacks 输入框接管（全机统一风格）
     window = {
       position = "left",
-      width = 35,
+      -- 宽终端保持 35 列；窄终端按 40% 收缩（80 列 → 32，60 列 → 24），最少 20
+      width = function()
+        return math.max(20, math.min(35, math.floor(vim.o.columns * 0.4)))
+      end,
       mappings = {
         ["<cr>"] = "open",
         ["o"] = "open",
@@ -37,7 +40,10 @@ return {
           ["l"] = "set_root",
           ["r"] = "rename",
           ["m"] = "move",
-          ["p"] = "toggle_hidden",
+          -- ⚠ 不要把 p 抢去当 toggle_hidden：neo-tree 默认 p = paste_from_clipboard，
+          --   抢掉之后 y/x/c 三条复制剪切动作全部失去粘贴入口（2026-09-25 审查发现）。
+          --   隐藏文件用 neo-tree 自带的 H（defaults.lua:499），本配置没覆盖它。
+          ["Z"] = "expand_all_subnodes", -- 递归展开光标所在节点下的所有子节点
           ["."] = false,
         },
       },

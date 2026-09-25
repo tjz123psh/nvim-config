@@ -20,9 +20,12 @@ return {
       treesitter = true, -- 语法高亮
       native_lsp = { enabled = true }, -- LSP 语义高亮
       blink_cmp = true, -- 补全菜单 blink.cmp
-      telescope = true, -- 搜索界面
+      -- telescope 集成已随插件一起删除（搜索统一走 snacks picker）
       indent_blankline = { enabled = true }, -- 缩进线
-      lualine = true, -- 状态栏
+      -- 注意：catppuccin 的 lualine 集成必须是 override 表；写 boolean 会让
+      -- lualine.themes.catppuccin-mocha 抛错、被 statusline.lua 的 pcall 吞掉，
+      -- 状态栏静默退化成 "auto"（中段变纯黑带）
+      lualine = { enabled = true }, -- 状态栏
       alpha = true, -- 欢迎页
       mason = true, -- Mason UI
       neotree = true, -- 文件树
@@ -30,6 +33,11 @@ return {
       dap = true, -- 调试器
       dap_ui = true, -- 调试界面
       which_key = true, -- 快捷键提示
+      -- 下面三个之前漏了：snacks 是现在所有选择器的宿主（不接进来它的组只能是默认黑底），
+      -- flash 是 s/S 跳转，notify 是通知卡片
+      snacks = true,
+      flash = true,
+      notify = true,
     },
   },
 
