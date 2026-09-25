@@ -91,13 +91,10 @@ return {
     -- 历史文件写守卫（2026-09-25 并发压测复现，详见技能 §27.3）：
     -- 上游只在 recent_projects == nil 时用追加模式；异步读撞上"被别人截断成 0 字节"的窗口时
     -- 内存会变成**空表（非 nil）** ⇒ 退出时 mode="w" 把磁盘历史抹掉（未镜像过的条目永久丢失）。
-    -- 修法：写前比对「磁盘现有条目 vs 本次计划」，会丢就**只追加缺的那些、绝不截断**；
-    -- 计划 ⊇ 磁盘时仍走原实现（去重 / 裁剪 100 条语义不变）。
+    -- 修法：**完全不用上游的截断写**，只把"磁盘上没有的条目"追加进去（见下面 write 守卫的注释）。
     local ok_hist, history = pcall(require, "project_nvim.utils.history")
     local ok_path_utils, path_utils = pcall(require, "project_nvim.utils.path")
     if ok_hist and ok_path_utils and type(history.write_projects_to_history) == "function" then
-      local original_write = history.write_projects_to_history
-
       local function disk_entries()
         local set = {}
         local fh = io.open(path_utils.historyfile, "r")
@@ -115,28 +112,21 @@ return {
         return set
       end
 
+      -- ⚠ 只追加、**永不截断**（2026-09-25 审查 F04）：
+      --   上一版守卫是"先读盘判断会不会丢 → 不会丢就调 original_write() 的 w 模式截断重写"，
+      --   但读盘与写入之间没有跨实例锁：另一个 nvim 在这个间隙 append 的条目会被这次截断抹掉
+      --   （检查后截断的竞态窗口）。镜像副本只能救"已经被镜像过"的记录，救不了刚写进去的那条。
+      --   追加写不会破坏别人的数据，所以这里把截断路径整个去掉；代价是插件历史文件可能变长，
+      --   读取侧（core/commands.lua 的 read_project_history）本来就会去重与并集。
       history.write_projects_to_history = function()
         local ok, err = pcall(function()
           local disk = disk_entries()
-          local planned, list = {}, {}
+          local list, seen = {}, {}
           for _, dir in ipairs(history.get_recent_projects()) do
-            if not planned[dir] then
-              planned[dir] = true
+            if not seen[dir] then
+              seen[dir] = true
               list[#list + 1] = dir
             end
-          end
-
-          -- 本次计划里没有、但磁盘上还留着的条目 —— 截断就会永久丢掉它们
-          local would_lose = false
-          for dir in pairs(disk) do
-            if not planned[dir] then
-              would_lose = true
-              break
-            end
-          end
-          if not would_lose then
-            original_write() -- 计划 ⊇ 磁盘：原行为（含去重与裁剪 100 条）
-            return
           end
 
           local missing = {}
@@ -146,7 +136,7 @@ return {
             end
           end
           if #missing == 0 then
-            return -- 磁盘是本次计划的超集：什么都不写，更不许截断
+            return -- 磁盘已包含本次全部条目：什么都不用写
           end
 
           pcall(path_utils.create_scaffolding)
@@ -158,9 +148,11 @@ return {
           fh:close()
         end)
         if not ok then
-          -- 守卫自身出错时也要保证历史文件不被半截覆盖
-          vim.notify("项目历史写回守卫异常，已回退原实现: " .. tostring(err), vim.log.levels.WARN)
-          pcall(original_write)
+          -- 守卫自身出错时也不回退到截断写：宁可这次不写，也不能破坏已有历史
+          vim.notify(
+            "项目历史写回守卫异常（本次跳过写入，绝不截断）: " .. tostring(err),
+            vim.log.levels.WARN
+          )
         end
       end
     end

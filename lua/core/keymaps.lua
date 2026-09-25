@@ -121,6 +121,15 @@ local function move_visual_lines(direction)
     return
   end
 
+  -- 记下选区两端的**列**和原来的可视子模式：旧实现恢复时把两端的列都写成 1，
+  -- 字符选择 / Ctrl-v 块选择移动后会退化成"整行"，Select 子模式也会丢（2026-09-25 审查 F10）。
+  local vmode = vim.fn.mode(1) -- "v" 字符 / "V" 行 / "\22" 块 / "s"·"S"·"\19" Select
+  local anchor = vim.fn.getpos("v")
+  local cursor = vim.fn.getpos(".")
+  local anchor_first = anchor[2] <= cursor[2]
+  local start_col = anchor_first and anchor[3] or cursor[3]
+  local end_col = anchor_first and cursor[3] or anchor[3]
+
   local first = vim.fn.line("v")
   local last = vim.fn.line(".")
   if first > last then
@@ -155,12 +164,26 @@ local function move_visual_lines(direction)
   end
 
   -- 重建选区。必须先退出可视模式：在可视模式内执行 gv 只会在 行块/字符 之间切换，
-  -- 不会按标记恢复，行块选区会退化成字符选区。退出后 '< '> 也会被正确写入，再 gv 恢复原类型。
+  -- 不会按标记恢复。退出后 '< '> 会被写入，再用**与原来一致**的恢复键重建。
   vim.cmd("normal! \27")
-  vim.fn.setpos("'<", { 0, new_first, 1, 0 })
-  vim.fn.setpos("'>", { 0, new_last, 1, 0 })
-  vim.api.nvim_win_set_cursor(0, { new_last, 0 })
-  vim.cmd("normal! gv")
+  local last_line_len = #(vim.api.nvim_buf_get_lines(0, new_last - 1, new_last, false)[1] or "")
+  if vmode == "V" then
+    vim.fn.setpos("'<", { 0, new_first, 1, 0 })
+    vim.fn.setpos("'>", { 0, new_last, 1, 0 })
+    vim.api.nvim_win_set_cursor(0, { new_last, 0 })
+    vim.cmd("normal! gV")
+  else
+    -- 列要各自跟着自己那一端走；'< / '> 都保留原列，块选择才不会塌成整行
+    vim.fn.setpos("'<", { 0, new_first, start_col, 0 })
+    vim.fn.setpos("'>", { 0, new_last, end_col, 0 })
+    vim.api.nvim_win_set_cursor(0, { new_last, math.max(0, math.min(end_col - 1, last_line_len)) })
+    -- gv 会连"上一次的可视模式"一起恢复（字符/块），不需要自己按 <C-v>
+    vim.cmd("normal! gv")
+  end
+  -- Select 子模式（可视模式内按 <C-g>）不会由 gv 恢复，显式按一次 <C-g> 回到 Select
+  if vmode == "s" or vmode == "S" or vmode == "\19" then
+    vim.cmd("normal! \07")
+  end
 end
 
 map("x", "J", function()

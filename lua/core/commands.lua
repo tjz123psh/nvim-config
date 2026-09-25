@@ -122,20 +122,35 @@ local function read_project_history()
   local ok_path, path = pcall(require, "project_nvim.utils.path")
   local dirs, seen = {}, {}
 
+  -- ⚠ 顺序语义：dirs 是"旧→新"，调用方翻转后 = 最近在前。三个来源里**越靠后越新**，
+  --   所以同一个项目再次出现时要**更新位置**（挪到末尾），不能像旧实现那样"先到先得"——
+  --   否则副本里的老位置会压住插件历史里更新的顺序，离开当前项目后列表顺序就失真
+  --   （2026-09-25 审查 F11：副本 A,B,C + 插件 B,C,A ⇒ 期望 A,C,B，实际 C,B,A）。
+  local function put(dir)
+    if seen[dir] then
+      for i, d in ipairs(dirs) do
+        if d == dir then
+          table.remove(dirs, i)
+          break
+        end
+      end
+    end
+    seen[dir] = true
+    dirs[#dirs + 1] = dir
+  end
+
   -- ① 我们自己的副本先来（它排在最"老"的一端；插件文件被清空后列表也不会变短）
   local own, own_seen = read_own_history()
   for _, dir in ipairs(own) do
-    seen[dir] = true
-    dirs[#dirs + 1] = dir
+    put(dir)
   end
 
   -- ② 插件自己的历史文件（顺序=旧→新；调用方翻转后就是"最近在前"）
   if ok_path then
     for _, line in ipairs(read_lines(path.historyfile)) do
       local dir = normalize_dir(vim.trim(line))
-      if dir ~= "" and not seen[dir] and vim.uv.fs_stat(dir) then
-        seen[dir] = true
-        dirs[#dirs + 1] = dir
+      if dir ~= "" and vim.uv.fs_stat(dir) then
+        put(dir)
       end
     end
   end
@@ -145,9 +160,8 @@ local function read_project_history()
   if ok_history and type(history.session_projects) == "table" then
     for _, dir in ipairs(history.session_projects) do
       local normalized = normalize_dir(dir)
-      if not seen[normalized] then
-        seen[normalized] = true
-        dirs[#dirs + 1] = normalized
+      if normalized ~= "" then
+        put(normalized)
       end
     end
   end

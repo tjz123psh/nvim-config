@@ -13,6 +13,11 @@ return {
     "williamboman/mason.nvim",
   },
   opts = {
+    -- ⚠ 上游默认 run_on_start = true / start_delay = 0 / debounce_hours = nil ⇒ 每次启动都会
+    --   check_install → registry.refresh（注册表缓存过期就联网更新），与"启动期不联网"的约定冲突
+    --   （2026-09-25 审查 F15：auto_update=false、工具都装好了也不代表不刷新注册表）。
+    --   这里关掉启动检查，需要时手动执行：:MasonToolsInstall 补齐缺失工具、:MasonToolsUpdate 更新。
+    run_on_start = false,
     ensure_installed = {
       "codelldb", -- C/C++/Rust 调试器（DAP 用）
       "java-debug-adapter", -- Java 调试器（DAP 用）

@@ -81,7 +81,7 @@ local sections = {
   {
     "选择器通用键（snacks picker）",
     {
-      { "<C-j> / <C-k>", "上/下移动（等同 <C-n> / <C-p>）" },
+      { "<C-j> / <C-k>", "下/上移动（等同 <C-n> / <C-p>）" },
       { "<CR>", "确认选中" },
       { "<Tab> / <S-Tab>", "多选：勾选并下移 / 上移" },
       { "<Space>", "勾选/取消（多选列表：jdtls 主类、字段/方法选择等）" },
@@ -228,6 +228,8 @@ local sections = {
       { ":LspInfo", "查看 LSP 客户端状态" },
       { ":LspLog", "打开 LSP 日志" },
       { ":JavaRun", "运行当前 Java 单文件" },
+      { ":MasonToolsInstall", "补齐缺失的 Mason 工具（启动不再自动检查）" },
+      { ":q! / :qa!", "放弃修改（不会触发自动保存）" },
       { ":JavaBuildProjects", "jdtls 重新导入/构建（需 Java 项目）" },
       { ":JavaSetRuntime", "切换 JDK（需 Java 项目）" },
       { ":PickerSkin soft|pink", "切换 picker 皮肤（默认 soft；pink 为向导洋红）" },

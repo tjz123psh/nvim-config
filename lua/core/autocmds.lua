@@ -58,6 +58,59 @@ local function is_savable(buf)
   return vim.api.nvim_buf_get_name(buf) ~= "" and bo.modified
 end
 
+local QUIT_NAMES = {
+  q = true,
+  qu = true,
+  quit = true,
+  qa = true,
+  qall = true,
+  quita = true,
+  quitall = true,
+  cq = true,
+  cquit = true,
+}
+
+--- 这条命令行是不是带 ! 的退出（:q! / :qa! / :3q! / :cq）
+--- ⚠ 必须定义在下面那些 autocmd **之前**：Lua 的 local 在声明点才进作用域，
+---   写在后面的话闭包里引用到的是全局 nil（本轮实测踩过一次，:q! 仍然被保存）。
+local function is_bang_quit(c)
+  if c == "" then
+    return false
+  end
+  c = vim.trim(c):gsub("^%d+%s*", "") -- 去掉 :3q! 里的计数
+  local name, bang = c:match("^(%a+)(!?)$")
+  if name == nil then
+    return false
+  end
+  name = name:lower()
+  -- :cq / :cquit 不带 ! 也是"放弃修改"退出（git 用它中止提交），要一并算上
+  if name == "cq" or name == "cquit" then
+    return true
+  end
+  return bang == "!" and QUIT_NAMES[name] == true
+end
+
+-- ⚠ 用户明确"放弃修改"时不能自动保存（2026-09-25 审查 F01）：
+--   QuitPre/VimLeavePre 本身不区分 :q 与 :q!（实测 v:cmdbang 恒为 0、getcmdline 为空），
+--   所以在 CmdlineLeave 里记下刚执行的那条命令行，退出链只看这一次的记录。
+-- 状态要"粘住"整个退出链（QuitPre → BufLeave → VimLeavePre 都会触发保存），
+-- 直到用户开始敲下一条命令才复位。
+local discard_pending = false
+vim.api.nvim_create_autocmd("CmdlineEnter", {
+  group = augroup,
+  desc = "开始输入新命令：清除上一次的放弃标记",
+  callback = function()
+    discard_pending = false
+  end,
+})
+vim.api.nvim_create_autocmd("CmdlineLeave", {
+  group = augroup,
+  desc = "记住刚执行的命令行（用于识别 :q! / :qa! 的放弃语义）",
+  callback = function()
+    discard_pending = is_bang_quit(vim.fn.getcmdline())
+  end,
+})
+
 local saving = false -- 重入保护：写盘时可能触发 BufLeave/退出类事件
 
 local function write_current()
@@ -67,6 +120,9 @@ end
 
 local function autosave_current_buf()
   if vim.g.core_autosave == false or saving then
+    return
+  end
+  if discard_pending then
     return
   end
 
@@ -82,6 +138,10 @@ end
 -- nvim_buf_call 让 :write 作用在指定缓冲区上，结束后当前缓冲区/窗口不变。
 local function autosave_all_bufs()
   if vim.g.core_autosave == false or saving then
+    return
+  end
+  -- :q! / :qa! / :cq 是"放弃修改"：这里若照常保存，用户以为丢掉的内容会落盘
+  if discard_pending then
     return
   end
 

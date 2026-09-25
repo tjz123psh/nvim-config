@@ -76,7 +76,11 @@ end
 -- 预发布形态实测有 4.2.0.M1 / 4.2.0.BUILD-SNAPSHOT / 4.1.1.RELEASE，
 -- Maven 风格连字符（4.3.0-RC1、4.3.0-M5）也要判住，否则会被标成"最新正式版"
 local function is_prerelease(id)
-  return id:find("SNAPSHOT") ~= nil or id:match("[%-._][MR][%d]+$") ~= nil or id:match("[%-._]BUILD$") ~= nil
+  local s = id:upper()
+  return s:find("SNAPSHOT", 1, true) ~= nil
+    or s:match("[%-._]RC%d*$") ~= nil -- 4.1.0-RC1 / 4.1.0.RC1：旧正则只认 M1/R1，RC 会被当正式版
+    or s:match("[%-._][MR]%d+$") ~= nil -- 4.2.0.M1 / 4.3.0-M5
+    or s:match("[%-._]BUILD$") ~= nil
 end
 
 local function vcmp(a, b)
@@ -787,9 +791,14 @@ local function pick_deps(all_deps)
             )
             -- ⚠ 不能只报告就继续：下面 ipairs(sel) 会静默得 0 项，带着"0 个依赖"一路创建，
             --   用户拿到的是缺依赖的项目。直接中止这一步（2026-09-25 审查指出）。
-            finish({})
+            -- ⚠ 原来这里写的是 finish({})，而 finish 在本文件里根本没有定义（全局 nil）⇒
+            --   抛 "attempt to call global 'finish'"，后面的 close/done 都不执行，协程永远挂着
+            --   （completed 已置位，on_close 又直接 return）。改用"取消"语义收尾（F12）。
             pcall(function()
               pk:close()
+            end)
+            vim.schedule(function()
+              done(nil)
             end)
             return
           end
@@ -982,7 +991,10 @@ local function flow()
   if not parent then
     return cancel()
   end
-  parent = vim.fn.expand(parent)
+  -- ⚠ 必须在这里就转成绝对路径：expand() 只展开 ~ 和环境变量，"." 仍是相对路径；
+  --   而创建完成后会先 chdir(parent/name) 再 find_main_class(dir)，相对 dir 会被按新 cwd
+  --   重解释成 parent/name/parent/name ⇒ 主类永远找不到（2026-09-25 审查 F13）。
+  parent = vim.fn.fnamemodify(vim.fn.expand(parent), ":p"):gsub("/$", "")
   local pstat = vim.uv.fs_stat(parent)
   if not pstat or pstat.type ~= "directory" then
     -- fs_stat 对普通文件也返回非 nil——必须查 type，否则 vim.system 坏 cwd

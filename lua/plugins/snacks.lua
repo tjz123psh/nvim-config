@@ -234,13 +234,20 @@ return {
           local prev_cfg = snacks.layout and snacks.layout.config
           sel_opts.snacks = vim.tbl_deep_extend("force", snacks, {
             layout = {
+              -- ⚠ 上游 select 源自带 layout.preset = "select"（min_width 80），会盖掉全局的
+              --   picker_compact ⇒ 80 列终端上框宽 80 + 边框，左右贴边/越界
+              --   （2026-09-25 审查 F09，真 PTY 复现）。这里对 select 显式指定紧凑预设。
+              preset = "picker_compact",
               config = function(layout)
                 if prev_cfg then
                   layout = prev_cfg(layout) or layout
                 end
                 for _, child in ipairs(layout.layout or {}) do
-                  if child.win == "list" and type(child.height) == "number" and child.height > 2 then
-                    child.height = child.height - 2
+                  if child.win == "list" then
+                    -- ⚠ 我们的 config 会整体替换上游"按条目数收缩高度"的那个回调
+                    --   （select.lua 里的 if not box.height then ... end），所以这里自己算一遍
+                    --   同样的公式，否则 3 个条目也会撑满一屏（F09 的第二个根因）。
+                    child.height = math.max(math.min(#items, math.floor(vim.o.lines * 0.8) - 10), 2)
                   end
                 end
                 return layout

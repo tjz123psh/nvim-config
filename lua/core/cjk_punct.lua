@@ -85,7 +85,9 @@ end, { desc = "切换「全角标点输入即转半角」" })
 
 vim.api.nvim_create_user_command("CJKPunctFix", function(cmd)
   local first, last
-  if cmd.range == 2 then
+  -- ⚠ 单地址（:2CJKPunctFix）时 cmd.range == 1 且 line1 == line2，不能只认 range == 2：
+  --   旧写法会把「明确指定一行」当成「全文」，静默改掉整个缓冲区（2026-09-25 审查 F02，实测复现）。
+  if cmd.range > 0 then
     first, last = cmd.line1, cmd.line2
   else
     first, last = 1, vim.api.nvim_buf_line_count(0)

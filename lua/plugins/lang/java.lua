@@ -142,11 +142,25 @@ return {
       -- 现在把 Java 特有的 DAP 接线推迟到"真的要调试 Java"时：下面每个用到 dap 的
       -- handler 先调 ensure_java_dap()（幂等）——它会 require("dap")（lazy 的模块加载器
       -- 顺手把插件装上并跑它的 config）再把 Java 适配器 / 热替换监听注册好。
+      -- ⚠ 更正（2026-09-25 审查 F07 实测）：这条"按需"只对 jdtls **没有 attach** 的场合成立。
+      --   上游 plugin/jdtls.lua 的 LspAttach 钩子会在 attach 时 require('dap') 并用默认参数
+      --   注册 Java 适配器 ⇒ 真机上打开 .java 就会加载 nvim-dap/dap-ui（startuptime 也能看到）。
       local java_dap_wired = false
       local function ensure_java_dap()
         local dap = require("dap")
         if not java_dap_wired then
           java_dap_wired = true
+          -- ⚠ 上游 nvim-jdtls 的 plugin/jdtls.lua 有 LspAttach 钩子，attach 时会调
+          --   setup._on_attach → add_commands → pcall(require,'dap') + setup_dap({})：
+          --   也就是说**打开 .java 时 nvim-dap 就已经被拉起来了**（实测 package.loaded['dap']=true），
+          --   本文件顶部"按需加载"的注释只对"没有 attach"的场景成立。
+          --   而且那次注册不带 hotcodereplace ⇒ 这里再调 setup_dap 会被上游的
+          --   "if dap.adapters.java then return end" 早退，热替换监听永远停在默认值
+          --   （实测 BUILD_COMPLETE 触发 0 次 redefineClasses）。要拿到 auto 必须先摘掉旧适配器
+          --   （2026-09-25 审查 F07）。
+          if dap.adapters and dap.adapters.java then
+            dap.adapters.java = nil
+          end
           jdtls.setup_dap({ hotcodereplace = "auto" })
         end
         return dap
@@ -382,6 +396,13 @@ return {
 
       local function debug_java()
         local dap = ensure_java_dap()
+        -- ⚠ 已有调试会话时 <F5> 必须是"继续"，不能重新选主类再 dap.run()
+        --   （同名活动配置在 nvim-dap 里是 restart ⇒ 断点处按 F5 会重启并丢失现场；
+        --   全局 <F5> 的语义就是 dap.continue，Java 缓冲区不该不一致。2026-09-25 审查 F06）
+        if dap.session() then
+          dap.continue()
+          return
+        end
         local jdtls_dap = require("jdtls.dap")
         local configs = dap.configurations.java or {}
         if #configs > 0 then
@@ -620,7 +641,10 @@ return {
               if ok then
                 return res == nil and vim.NIL or res
               end
-              return vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, tostring(res))
+              -- ⚠ 必须是「nil, error」两个返回值：runtime 把 handler 的返回值当 (result, err)
+              --   （client.lua:1339 → rpc.lua:391 的 status/result/err 三元），只回一个 error 表
+              --   会被当成**成功的 result**，服务端永远等不到错误响应（2026-09-25 审查 F08）。
+              return nil, vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, tostring(res))
             end
             -- 没实现的命令要给 jdtls 一个「它认得的空结果」：JDTLanguageServer.synchronizeBundles()
             -- 对 _java.reloadBundles.command 的返回值做 instanceof List → loadBundles /
@@ -641,15 +665,30 @@ return {
           --   No locations found / No code actions available /
           --   no matching language servers with rename capability）。
           --   所以：已经启动过也要保证 jdtls 仍挂在这个 buffer 上（2026-09-25 真机定位）。
-          local existing = vim.lsp.get_clients({ name = "jdtls" })[1]
-          if existing and not (existing.attached_buffers or {})[bufnr] then
-            vim.lsp.buf_attach_client(bufnr, existing.id)
+          -- ⚠ 但必须挑**同一个 root** 的客户端（2026-09-25 审查 F05）：原来直接取
+          --   get_clients({name="jdtls"})[1]，同时开 A/B 两个 Java 项目时会把 B 的 buffer
+          --   挂到 A 的 client 上（跨项目补全/诊断），与"每项目独立 workspace"的承诺冲突。
+          local existing
+          for _, c in ipairs(vim.lsp.get_clients({ name = "jdtls" })) do
+            if c.config and c.config.root_dir == root_dir then
+              existing = c
+              break
+            end
           end
-          setup_java_keys(bufnr)
-          return
+          if existing then
+            if not (existing.attached_buffers or {})[bufnr] then
+              vim.lsp.buf_attach_client(bufnr, existing.id)
+            end
+            setup_java_keys(bufnr)
+            return
+          end
+          -- ⚠ 一个存活的同 root 客户端都没有（首次启动失败 / 客户端被停 / jdtls 崩了）：
+          --   不能继续"已启动过"就 return，否则这个 buffer 永远没有 LSP（F05 触发二）。
+          started_bufs[bufnr] = nil
         end
-        started_bufs[bufnr] = true
-        jdtls.start_or_attach(config)
+        local client_id = jdtls.start_or_attach(config)
+        -- 只有真的拿到 client 才算启动成功，否则下次 FileType 还会重试
+        started_bufs[bufnr] = client_id ~= nil
         setup_java_keys(bufnr)
       end
 
