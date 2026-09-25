@@ -151,6 +151,16 @@ local sections = {
     },
   },
   {
+    "AI CLI（sidekick，用已安装的 codex / opencode / grok）",
+    {
+      { "<leader>aa", "开关 AI CLI 面板" },
+      { "<leader>as", "选工具（只列已安装的）" },
+      { "<leader>at", "把当前上下文（{this}）发过去" },
+      { "<leader>ad", "断开当前会话" },
+      { "<C-.>", "聚焦 / 回到 CLI 窗口" },
+    },
+  },
+  {
     "Java / Spring Boot（需 Java 缓冲区）",
     {
       { "<F5>", "Java: 调试（自动扫描主类，多个则选择）" },
