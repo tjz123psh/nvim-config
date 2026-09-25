@@ -9,7 +9,7 @@
 > **📌 最终状态（2026-09-24 收尾，第一轮）**：**结论汇总 / 已解决 / 未解决 / 事故 / 验收命令 / 回滚点 / 方法论坑** 见 **§19「最终状态与交接」**。
 > **📌 换会话/压缩后**：直接粘 **§25「新会话启动提示词」** 那段（自带目标、必读顺序、环境前提、不要重做的事、待办与验收命令）。
 >
-> **📌 最新（2026-09-25 第十三/十四轮：第二次全面审查 §29）**：用户截图的两条红色报错已修（`workspace/executeClientCommand` handler 的两处错误处理）；审查线① 又抓出**round 11 把 spring-boot classpath 握手整个盖掉**的 P1 功能性回归（已修 + 转发链单测）、审查线② 修掉「启动即对 35 插件 git fetch」的 P2、清理探针泄漏的 28 个语言服务孤儿（8.1GB）、补验 go/rust 语言链、给 `lsp.log` 加 5MB 容量轮转。**§29.3 有总账表**。
+> **📌 最新（2026-09-25 第十三/十四轮：第二次全面审查 §29）**：用户截图的两条红色报错已修（`workspace/executeClientCommand` handler 的两处错误处理）；审查线① 又抓出**round 11 把 spring-boot classpath 握手整个盖掉**的 P1 功能性回归（已修 + 转发链单测）、审查线② 修掉「启动即对 35 插件 git fetch」的 P2、清理探针泄漏的 28 个语言服务孤儿（8.1GB）、补验 go/rust 语言链、给 `lsp.log` 加 5MB 容量轮转。**§29.3 有总账表**。 收尾：**文档 + 两个 nvim skill（`nvim-config` / `nvim-troubleshooting`）已同步本轮全部结论**（§29.5）；剩余项经分类全部是**上游/环境/已知限制（8 条）与拓展/可选（6 条）**，无未解决问题。
 >
 > **📌（历史）第十一轮收尾**：**工作台账 §23 已 100% 结清** —— ✅ 已解决 50+ / ⏳ 未解决 **0** / 🟡 待决定 **0**（6 项均已拍板落地）/ ❓ 尚未排查 **11/11 已结**。第十一轮把台账最后 6 项 + 历史快照全部做完：**§27.1** bufferline/alpha 并入统一 soft 调色（并加 `padding = 1` 修掉标签栏 1 列偏差）、**§27.2** 历史快照节全部标注结清、**§27.3** 项目历史多实例并发压测**复现出真实截断 bug 并落地修复**（`project.lua` 写守卫：会丢就只追加、绝不截断）、**§27.4** DAP 深挖（空 logMessage 上游语义 + `session:request` 空数组根因）、**§27.5** Neovide 死配置订正、**§27.6** neo-tree 80 列定性（窗口没错位，标签栏 offset 差 1）、**§27.7** 性能压测（无 >500ms 交互停顿）。§26 是第九/十轮记录；**压缩后从 §23 台账 + §27 继续**。 第十二轮（用户反馈）见 **§28**：欢迎页恢复黄色 / **DAP 按需加载**（打开 .java 不再加载 nvim-dap·dap-ui·virtual-text·nio）/ 大文件防御决定不加 / 清理旧 jdtls workspace（507M→108M）。
 >
@@ -1102,7 +1102,7 @@ stylua --check . 41/41、picker/标签栏/状态栏配色一致、大文件与�
 ★他机器上常态跑着自己的 Neovide 会话（neovide + nvim --embed）并常驻 jdtls/spring-boot LS/lua-language-server ——
 那是他在用的，**绝对不要 kill**；探针要用副本工程 + 全新 -data，性能类数字要标注这个背景负载。
 
-待办：**§23 台账已 100% 结清；§27（第十一轮六项 + 历史快照节）、§28（第十二轮三项）、§29（第二次全面审查 5 条线的发现与修复）也全部做完 —— 没有必须做的事**。
+待办：**§23 台账已 100% 结清；§27（第十一轮六项 + 历史快照节）、§28（第十二轮三项）、§29（第二次全面审查 5 条线的发现与修复 + lsp.log 轮转 + go/rust 验证）也全部做完 —— 没有必须做的事**。剩余项已定性（§29.5）：A 类上游/环境/已知限制 8 条 + B 类拓展/可选 6 条。
 §29 之后新增的「别再踩」要点：① `workspace/executeClientCommand` 的 handler **必须**先查 `client.commands` → 再查全局 `vim.lsp.commands`（client 级 handler 会盖掉 nvim-jdtls 的全局转发，盖掉就等于吞掉 spring-boot 的 classpath 握手）；② **绝不能 `return nil`**（runtime rpc.lua:398-406 会抛错且请求永不回）；③ `_java.reloadBundles.command` 要回**空表**（jdtls 按 `instanceof List` 判，回 null 会记 `Unexpected result`）；④ 探针收尾要按 PPID 清 `language-server.jar` 孤儿（技能 §18.9/§18.10）。
 下一步候选（等用户点头，别自己开工）：① 观感微调（按「哪一块 + 期望」告诉你就行）；② 想继续榨启动时间：DAP 已按需（§28.2），
    剩下的 `nvim-jdtls` / `spring-boot` 也可以照同样思路收窄（打开多文件时只挂一份）；③ 若担心未来 5MB+ 单行文件，可加一条 BufReadPost 大文件防御
@@ -1987,3 +1987,19 @@ top5 无单项 >300ms；打开 `.java` 时最大新增项是 `require spring_boo
 ⇒ `lang/rust.lua` / `lang/go.lua` 的 LSP 接线正常；此前「未覆盖」的 go/rust 面已补上。
 
 **§29.3 遗留清单更新**：① `lsp.log` 不轮转 → ✅ 已修（本节）；⑤ go/rust 未覆盖 → ✅ 已验证（本节）；仍留：冷启动索引时间随负载波动（环境因素）、snacks health 那条 known-benign、上游 nvim-jdtls 的 fields 类 `pick_many` 无取消通道、GUI(neovide) 的**视觉**判断（只能你自己看）。
+
+### 29.5 本轮收尾：文档与两个 nvim skill 同步（用户：『本次修改 nvim 结束即可』）
+
+| 对象 | 本次更新 |
+|---|---|
+| **工作台账**（本文件） | §29 全量记录（§29.1 截图报错 / §29.2.1–29.2.6 五条审查线 / §29.3 总账表 / §29.4 轮转与 go·rust / §29.5 本节）；文首状态行、§25 启动提示词、§29.3 遗留清单同步；另订正 3 处早期过时表述（§28.2 与 §28.7 的 `<F5>` 待观察项、§24.2 占位条目『未证实』、§21 cheatsheet 漂移『仍待补』） |
+| **nvim-config skill** | `SKILL.md` 新增 4 条约定：① `workspace/executeClientCommand` 转发的三条硬规则（不能 `return nil` / 未知回 `vim.NIL` / reloadBundles 回空表，且 client 级会盖掉全局转发）；② Java DAP 按需（`ensure_java_dap`）；③ `lsp.log` 5MB 容量轮转；④ lazy 更新检查器已关（启动期不联网）。project.nvim 约定升级为**四层保护**。`references/architecture.md` 新增 3 行特殊处理（LSP 服务端→客户端请求 / lsp.log 轮转 / lazy 检查器），并在 Java DAP、project.nvim 两行补上按需加载与写守卫 |
+| **nvim-troubleshooting skill** | `references/nvim-troubleshooting-history.md` 新增 **§19**（`workspace/executeClientCommand`：两类红色报错的返回值语义、**client 级 handler 盖掉全局转发**导致 classpath 握手被吞、正确写法、可复用的 client handler 单测、`lsp.log` 轮转），并更新更新记录；`SKILL.md` 章节速查补齐 §14–§19（原来只列到 §13）、行数 774→1143、症状分诊表新增『LSP 红色报错 / spring 补全缺失 / Java 调试起不来 → 先看 §19』 |
+| **~/md/nvim** | `nvim配置架构.md` 新增 3 行：handler 转发规则、`lsp.log` 轮转、lazy 检查器关闭（用户文档只写『该是什么样』，细节仍指向台账与 skill） |
+
+**验收**：`stylua --check .` 41/41 exit 0；`nvim --headless '+qa'` exit 0；插件 35；工作区干净；孤儿 java 0；`~/tmp` 已清空。
+
+**剩余项定性（回答用户『接下来的都是拓展问题吗』）**：**是**。
+
+- **A 类：上游 / 环境 / 已知限制（8 条，不是配置能修的）** —— 项目历史 TOCTOU 重复行（需跨进程 flock，读取端已去重）、层① 覆盖面（设计事实）、`picker.lines()` 对 1MB 单行 4.8s（**没有任何键位绑它**）、真 pty 下空 `.java` 启动慢 ~50ms（未定位、不影响判定）、`ServiceReady` 未观测（判据已换 `documentSymbol`）、snacks health 那条 known-benign（wrapper 是修 UI 的，不能删）、上游 `pick_many` 无取消通道、冷启动索引时间随背景负载波动。
+- **B 类：拓展 / 可选（6 条）** —— 把 `nvim-jdtls`/`spring-boot` 也做更细的按需加载（20–50ms，推荐下一个）、`BufReadPost` 大文件防御 autocmd（纯防御）、打开树后 resize 与 160 列两版验证、GUI(neovide) 的视觉判断（需用户本人看）、观感微调、NFS/WSL 与历史 >100 条裁剪路径。
