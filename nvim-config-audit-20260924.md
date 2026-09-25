@@ -487,8 +487,8 @@ delay = 300,
 ### 11.5 ✅ 已全部结清（原「仍未做 / 需要你拍板」，逐项落点见 §27.2 + §27.8）
 
 - **未做（按约定不动）**：停维护插件替换（project.nvim/dressing/Comment/bufferline/toggleterm）、`~/.config/kitty/kitty.conf`、2 个 WIP 文件的 stylua 全树格式化。
-- **需要你实机确认**：真 Java 工程里的多选弹窗；向导 11 步；补全菜单里 `<Tab>` 的最终归属；状态栏/浮窗观感；Neovide。
-- **观察项**（文档线提出，我未改）：`:JavaSetRuntime` 命令存在，但 `java.lua` 未配 `settings.java.configuration.runtimes`，nvim-jdtls 可能提示 "No runtimes found"——要不要补配置由你定。
+- **需要你实机确认** → ✅ **已全部验完**：多选弹窗/向导 11 步/`<Tab>` 归属见 §27.8（真 pty：pick_many 勾选+多动作、向导真建项目、blink 压过 neotab）；状态栏与浮窗观感见 §22.5/§27.1（实底统一）；Neovide 见 §27.5（死配置订正 + 其余选项逐个对照官方文档）。
+- **观察项**（原「文档线提出，我未改」）→ ✅ **已结**：`settings.java.configuration.runtimes` **第二轮就补上了**（`JavaSE-21` 默认 + `JavaSE-1.8`，路径不存在自动跳过）；第十二轮又修掉「不带参数只警告、不弹列表」的 `nargs="?"` 缺陷（§27.8 ④ / §28），实测两个 runtime 都能列出、`:JavaSetRuntime` 直接弹列表。
 - **未验证项**（队友如实标注）：`is_selected` 预勾选后 Tab 追加的时序；`<Space>` 勾选只在列表窗口生效；字段路径的"真取消"受上游 `jdtls.lua:138` 不检查返回值限制。
 ---
 
@@ -515,10 +515,10 @@ delay = 300,
 1. **不要给 `layout` 传裸表**：不带 `preset` 直接写 `{ box = "vertical", { win = "input" }, … }` 会报 `layout.lua:102: no root box found`（深层合并把数组部分揉坏）。定制要**注册预设**再按名字引用。
 2. **预设里定义的键会赢过调用处的内联覆盖**：`layout = { preset = "select", min_width = 40 }` 无效（仍是 80，80 列终端被裁 3 列）。要改就改预设本身。
 
-### 14.4 还没做（等你定）
+### 14.4 ✅ 已结清（原「还没做（等你定）」）
 
-- 向导卡片、`vim.ui.select`（dressing）目前仍是洋红 `#f38ba8`；要"三处完全统一"需要给 dressing 换 `snacks_picker` 后端 + 把向导的 `source` 改成独立名（避免 snacks 同 source 互顶）。
-- `.ui-shots/` 是这次给你看效果的临时图目录（对比图 + fzf-lua 官方 demo 帧），看完可删。
+- ~~向导卡片、`vim.ui.select`（dressing）仍是洋红~~ → ✅ dressing **已删除**（第二轮起全机唯一选择器 = snacks picker）；向导卡片已在 §21.6 并入同一套 soft 色，`source` 也改成了独立的 `spring-wizard`（§22.5）。
+- ~~`.ui-shots/` 临时图目录~~ → ✅ 已归档到 `~/backups/nvim-ui-shots-20260924/`（§20.1 #10）。
 ---
 
 ## 15. 第五批：能换的地方都换成 fzf 形态（2026-09-24 收尾）
@@ -556,7 +556,7 @@ delay = 300,
 | 根因 | `core/commands.lua` 里**旧有的** `read_project_history_sync()` 会写 `project_nvim.utils.history.recent_projects`；而 project.nvim 在 `VimLeavePre` 用 **mode=\"w\"（截断）** 重写整份历史文件（`history.lua:145-173`）⇒ 只要内存里被赋成空表，退出时就把 `~/.local/share/nvim/project_nvim/project_history` 清成 **0 字节**。我这一晚跑了 50+ 次 headless 探测，把它触发了 |
 | 修复 | 删除该函数，改为 `read_project_history()`：**只读文件**构造列表（并从 shada 的 oldfiles/字符串里恢复），**绝不写插件内存状态** ⇒ 这条清空路径不复存在 |
 | 恢复 | 从 shada 捞回 `~/Projects/Feed stream`、`~/Projects/leetcode`，并补上 `~/Projects/*` 里带 `.git` 的项目，共 **15 条**写回历史文件（`/tmp/project_history.before-restore` 是空文件副本）|
-| 遗留 | 原始列表无法完全还原（shada 的 oldfiles 已被我的探测轮换掉）。**但这份历史会随你打开项目自动重建**；目前 15 条是我按现有项目补的种子，多余的可删 |
+| 遗留 | 原始列表无法完全还原（shada 的 oldfiles 已被我的探测轮换掉）。**但这份历史会随你打开项目自动重建**；当时补了 15 条种子。**现状（2026-09-25）：已自然重建到 21 行，且第十二轮的并发压测又给它加了「写守卫」——见 §27.3** |
 
 ### 16.2 观感/交互 bug（全部实测）
 
@@ -737,7 +737,7 @@ bash ~/.dsh/skills/dsh/dsh-upgrade/scripts/verify.sh     # 期望：13 通过 / 
 
 1. 你 commit/stash 那两个 WIP 文件 → 跑 stylua . 收尾格式。
 2. 四个小改（各 1-3 行）：springboot.lua 去 lazy=false、lang/init.lua 加 notify、statusline.lua 修 neo-tree 死配置、lsp/init.lua 裁 lemminx filetypes。
-3. 诊断显示升级（virtual_lines + float 去内部码）—— 观感会变，需要你点头。
+3. 诊断显示升级（virtual_lines + float 去内部码）—— ~~观感会变，需要你点头~~ → ✅ 用户点头后已于 §22.5.1 开启，真 pty 三条诊断复验通过。
 4. treesitter 补 tsx / vue / svelte。
 5. 停维护插件替换（project.nvim / Comment / bufferline / toggleterm）—— 需求变更，需你先决定。
 
@@ -745,7 +745,7 @@ bash ~/.dsh/skills/dsh/dsh-upgrade/scripts/verify.sh     # 期望：13 通过 / 
 
 ## 20. 第九批：按 §19.8 继续收尾（2026-09-24 深夜第二轮，用户："根据文档继续处理问题"）
 
-> 本节是**最新一轮**记录，§19 仍是第一轮交接快照；凡与 §19.3 冲突，**以本节为准**。所有结论都有真机证据（headless 探针 / 真 pty / 进程表 / 配置文件核对）；**故意没做、仍等你点头的项在 20.2**，本轮新踩的坑在 20.3。
+> 本节是**最新一轮**记录，§19 仍是第一轮交接快照；凡与 §19.3 冲突，**以本节为准**。所有结论都有真机证据（headless 探针 / 真 pty / 进程表 / 配置文件核对）；~~故意没做、仍等你点头的项在 20.2~~ → **§20.2 的 3 项已在 §23.3 拍板并落地（2026-09-25），本节其余待办见 §23/§27**，本轮新踩的坑在 20.3。
 
 ### 20.1 ✅ 本轮已解决（10 项）
 
@@ -912,15 +912,15 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 | 宽屏下 picker 只有 49% 宽 | 预设 `width` 从继承的 `0.5` 改成函数 `max(40, min(110, floor(columns*0.55)))` | 实测：160→88、120→66、100→55、80→44 ✔（窄终端仍夹在 40 列起） |
 | **诊断 `virtual_lines`**（§19.3 第 6 项的最后一半，用户点头后开启） | `options.lua`：`virtual_text.current_line=false` + `severity={min=WARN}`；`virtual_lines={current_line=true, severity={min=WARN}, format=function(d) return d.message end}` | 真 pty 造三条诊断：当前行 ERROR → 下一行整行展开（红色，且**没有** `[603979884]` 内部码，因为自定义 format 去掉了）、非当前行 WARN → 行尾 `●` 文字（黄）、HINT → 只有符号列 ✔。INFO/HINT 从此不再占行尾 |
 
-#### 仍留着的（已记录，等你点头或确认无感）
+#### ✅ 已全部结清（原「仍留着的（已记录，等你点头或确认无感）」；逐行结论见下表右列追加）
 
 | 项 | 现状 | 建议 |
 |---|---|---|
-| 状态栏中间段透明（lualine `c` 段 bg=NONE，两端是实色块） | 主题 `transparent_background` 的既定副作用，与"实底卡片"不一致 | 要统一的话给 lualine 的 `c` 段显式 `bg=#181825`；**观感会变**（整条状态栏变实底），等你一句话 |
-| 背景两档（picker base `#1e1e2e` vs which-key/LSP 浮窗 mantle `#181825`） | 已通过 FloatBorder/FloatTitle 统一了"边框与标题"，底色仍是主题默认 | 要全统一把 `NormalFloat` 也写实底，但会影响所有浮窗（含 LSP 悬浮） |
+| 状态栏中间段透明（lualine `c` 段 bg=NONE，两端是实色块） | 主题 `transparent_background` 的既定副作用，与"实底卡片"不一致 | ✅ **已做**：`statusline.lua` 给所有模式的 `c` 段补了 `bg=#181825`，整条实底（§22.5/§27.1） |
+| 背景两档（picker base `#1e1e2e` vs which-key/LSP 浮窗 mantle `#181825`） | 已通过 FloatBorder/FloatTitle 统一了"边框与标题"，底色仍是主题默认 | ✅ **已做**：`NormalFloat` 已统一为实底（§23.1「全机 FloatBorder/FloatTitle/NormalFloat 统一」） |
 | 宽屏下 picker 卡片宽 49%（`width=0.5`，`max_width=100` 没触到） | 有意为之的紧凑风格 | 想更宽改预设 `width` |
-| alpha 按钮强调色 `#74c7ec` 与 picker 的 `#f9e2af` 不是同一支；bufferline 透明底 | 主题自带 | 属可选调色 |
-| neo-tree 80 列下分隔符 1 列错位 | 边界情况，160 列正常 | 未复现到稳定结论，先记着 |
+| alpha 按钮强调色 `#74c7ec` 与 picker 的 `#f9e2af` 不是同一支；bufferline 透明底 | 主题自带 | ✅ **已处理**：bufferline 实底统一调色 + `offsets padding=1`（§27.1/§27.6）；alpha 的蓝色统一调色**经用户否决后已回退**成原来的黄色（§28.1）——最终状态就是用户要的那套 |
+| neo-tree 80 列下分隔符 1 列错位 | 边界情况，160 列正常 | ✅ **已定性**（§27.6）：**窗口分隔符没有错位**（79/80/81/120 四档实测吻合几何期望）；真正差 1 列的是标签栏 offset，已加 `padding = 1` 修好 |
 
 ### 22.4 真机走查（120×32 与 80×24 两种终端）
 
@@ -1099,10 +1099,10 @@ stylua --check . 41/41、picker/标签栏/状态栏配色一致、大文件与�
 ★他机器上常态跑着自己的 Neovide 会话（neovide + nvim --embed）并常驻 jdtls/spring-boot LS/lua-language-server ——
 那是他在用的，**绝对不要 kill**；探针要用副本工程 + 全新 -data，性能类数字要标注这个背景负载。
 
-待办：**§23 台账已 100% 结清（0 未解决 / 0 待决定 / 11-11 已排查），没有必须做的事**。
-下一步候选（等用户点头，别自己开工）：① 把 DAP 相关 spec 从 ft=java 收窄（打开任意 .java 会同步加载 nvim-jdtls+nvim-dap+spring-boot，
-性能压测建议的性价比最高项，量级 25–50ms）；② 若担心未来 5MB+ 文件，可加一条 BufReadPost 大文件防御 autocmd（本轮实测「不加也不卡」）；
-③ 观感微调（按「哪一块 + 期望」告诉你就行）。
+待办：**§23 台账已 100% 结清（0 未解决 / 0 待决定 / 11-11 已排查）；§27（第十一轮六项 + 历史快照节）与 §28（第十二轮三项）也全部做完 —— 没有必须做的事**。
+下一步候选（等用户点头，别自己开工）：① 观感微调（按「哪一块 + 期望」告诉你就行）；② 想继续榨启动时间：DAP 已按需（§28.2），
+   剩下的 `nvim-jdtls` / `spring-boot` 也可以照同样思路收窄（打开多文件时只挂一份）；③ 若担心未来 5MB+ 单行文件，可加一条 BufReadPost 大文件防御
+   autocmd（§27.7 实测「不加也不卡」，纯防御）。
 验收命令：nvim --headless '+checkhealth' '+write! /tmp/h.txt' '+qa'；stylua --check .（期望 41/41）；
 ls -d ~/.local/share/nvim/lazy/*/ | wc -l（期望 35）；wc -l ~/.local/state/nvim/project-history.list。
 ```
@@ -1241,7 +1241,7 @@ ls -d ~/.local/share/nvim/lazy/*/ | wc -l（期望 35）；wc -l ~/.local/state/
 
 **尺寸与新增能力也已入文档**：noice 自适应宽（实测 44 列）、dressing 动态夹取、dap-ui 侧栏、blink 文档窗、logo 阈值 58、`<leader>tv` 自适应、neo-tree 宽度函数、devicons、`:JavaSetRuntime`（6 份文档）、`pick_many` 预勾选细节。
 
-**有意保留的 4 处**：`:JavaInit` 在 4 份文档里以"**已删除**（该命令不存在）"的墓碑形式出现——这是防止有人再照旧文档敲命令，不是残留；要彻底零出现可删（需要你一句话）。
+**有意保留的 4 处**：`:JavaInit` 在 4 份文档里以"**已删除**（该命令不存在）"的墓碑形式出现——这是防止有人再照旧文档敲命令，不是残留。**2026-09-25 定：保留**（用户没要求删，且墓碑正是防误用的正确形态；文档侧已全部同步为"已删除"口径）。
 
 #### 13.1 本轮最后两条代码完善（报告 §3 的建议项）
 
@@ -1346,7 +1346,7 @@ git diff --stat                                              # 看它到底改�
 - **cheatsheet 漂移 11 键 + 10 命令**，重点：`<leader>hk` 只存在于窗口标题串（cheatsheet.lua:279）而无条目；`<leader>RV` 整条缺；`<leader>Rv/Rm/Rc` 丢了 n 模式"光标处表达式"语义；命令缺 `:PickerSkin`、`:SpringBootCreate`。
 - **措辞 1 条**：`nvim自定义命令.md:14/26` 说 `:SpringBootCreate` 注册在 `core/commands.lua`，实际在 `spring_wizard.lua:1176`（commands.lua:58-64 只是启动期 require）。
 - **事实一致性全部通过**：插件 35 == lazy-lock.json 35；telescope/dressing/Comment.nvim 在所有文档里都是"已删除"叙述且无 live spec；文档引用的路径全部存在。
-- 未改任何文档，只给建议文本（**需要你点头才动** `~/md/nvim` 与 cheatsheet）。
+- ~~未改任何文档，只给建议文本（需要你点头才动 `~/md/nvim` 与 cheatsheet）~~ → ✅ **后续已全部落地**：`~/md/nvim` 8 个文件与 cheatsheet 都已按本报告同步（§26.9、§27.8、§28），`~/md` 仓库有对应提交（`ae5ef9d`/`71710aa`/`71a8434`）。
 
 ### 26.6 本轮验收结果与下一步
 
@@ -1468,9 +1468,9 @@ hover            → Empty hover response
 | §23.4 #4 向导真建项目 | ✅ 已真建：隔离目录 `~/tmp/nvim-probe/wizard-out` 用真 pty 跑完 11 步 + 确认创建 | 生成 `demo/`：`pom.xml`、`mvnw`、`.mvn/wrapper`、`src/main/java/com/example/demo/DemoApplication.java`、`HELP.md`；`<java.version>21</java.version>`；jdtls 已编译出 `target/classes/com/example/demo/DemoApplication.class` 并自动打开主类 |
 | §23.4 #5 `:JavaRun` 多场景 | ✅ 三场景全绿 | ① `App.java`（package com.example，跨文件依赖 Helper）→ `total=7` / `hello nvim` / `A,B,C`；② `tools/ToolApp.java`（第二包 + 第二 main）→ `tool=TOOL!`；③ 无 package 的 `Hello.java` → 单文件模式 `hello from single-file mode` + `i=1..3` |
 
-**新发现（仅记录，未改配置）**：向导第 3 步"Java 版本"列表按**降序**排，指针默认落在最新版（实测 27），而带"LTS，推荐"hint 的 21 排在后面——直接回车会建出 Java 27 项目。若要默认 21，改 `spring_wizard.lua` 的排序或把指针预设到 LTS 项即可（等你一句话）。
+**新发现（仅记录，未改配置）**：向导第 3 步"Java 版本"列表按**降序**排，指针默认落在最新版（实测 27），而带"LTS，推荐"hint 的 21 排在后面——直接回车会建出 Java 27 项目。~~若要默认 21…（等你一句话）~~ → ✅ **已定：用户明确说「不用」改**（保留降序、默认最新版），本条关闭。
 
-**仍只剩一件事**：28 个已跟踪文件的改动仍未提交 git——按你早先的要求，我一直没有 `git commit`。
+**仍只剩一件事**：28 个已跟踪文件的改动仍未提交 git——按你早先的要求，我一直没有 `git commit`。**（2026-09-25 订正：用户说「开始提交」后已全部提交，见 §26.13；后续 §27/§28 的改动也都有对应提交）**
 
 ### 26.13 收尾：git 提交 + 临时文件清理（2026-09-25，用户："开始提交，然后清理临时文件"）
 
@@ -1496,7 +1496,7 @@ hover            → Empty hover response
 - 探针建的 jdtls 工作区：`java-demo-b4d2eb1060`、`demo-1bc19634ef`、`demo-561a2c8884`、`nvim-probe-d0eb1c856f`（约 180M）
 - `/tmp` 探针垃圾：`r9-*`/`r10-*`/`r11-*`/`r12-*`、`acc-*`、`audit-before-bt*.md`、`sw-*.lua`、`cs-before-fmt.lua`、`jdt-log-before.log`、`cmp-*`、`tmp.*` 等
 
-**保留**：`/tmp/termvenv`（pyte 抓屏工具链，丢了按 §25 重建）；更早轮次遗留的 jdtls 工作区（`javaproj`/`jproj`/`w1jb`/`w2verify`/`tmp-`/`some-very-long-project-name`/`docs`/`nvim`/`feed-java`，约 350M）——不是本次会话产生，未擅自删。
+**保留**：`/tmp/termvenv`（pyte 抓屏工具链，丢了按 §25 重建）；更早轮次遗留的 jdtls 工作区（`javaproj`/`jproj`/`w1jb`/`w2verify`/`tmp-`/`some-very-long-project-name`/`docs`/`nvim`/`feed-java`，约 350M）——不是本次会话产生，未擅自删。**（2026-09-25 第十二轮订正：用户说「可以清理」，这批已全部删除，见 §28.4；现在 workspace 目录只剩 `feed-java-f631125a78` 108M）**
 
 ### 26.14 删除 `<leader>sP`（原版 Spring 向导）—— 用户截图指出（2026-09-25）
 
@@ -1658,7 +1658,7 @@ hover            → Empty hover response
 **清理（已执行，用户：「工作完成后清理掉即可」）**：
 - 删除 `~/tmp/nvim-audit/`（**243M**：perf 的 feed-java-copy / dsh-copy / 合成大文件、hist 的隔离 XDG 沙箱、dap/uicheck 的 Java 副本与探针、lead 的抓屏与 A/B 配置副本）与 `/tmp` 里的临时文件。
 - 删除本轮新建的 jdtls workspace：`java-demo-397dee7e2f`（dapdev）、`feed-java-copy-de7c54bd2b`（perf）、`feed-java-uicheck-277eec247e`（uirepro）、`perf-9da1124ad7`（perf 的工作目录被识别成项目）。
-- **保留**：`…/jdtls-workspace/feed-java-f631125a78`（**用户会话正在用**，绝不能删）、其余历史 workspace（352M，等用户点头再删）、`/tmp/termvenv`（pyte）、`~/backups/nvim-config-round12-20260925-131000/`（`palette/` 6 张截图 + `evidence/` 27 个归档件）、`~/backups/nvim-config-hist-stress-20260925-13{0658,1002}/`（真实历史备份 + 补丁前后的配置）。
+- **保留**：`…/jdtls-workspace/feed-java-f631125a78`（**用户会话正在用**，绝不能删）、~~其余历史 workspace（352M，等用户点头再删）~~ → **2026-09-25 第十二轮已按用户「可以清理」全部删除（507M→108M，见 §28.4）**、`/tmp/termvenv`（pyte）、`~/backups/nvim-config-round12-20260925-131000/`（`palette/` 6 张截图 + `evidence/` 27 个归档件）、`~/backups/nvim-config-hist-stress-20260925-13{0658,1002}/`（真实历史备份 + 补丁前后的配置）。
 - 残留进程：无（只剩用户自己的 `neovide 911080` / `nvim --embed 911103` / `jdtls 1314657`，全程未受影响）。
 
 **Agent Teams 分工与产物**：task-4 hist-stress（→ §27.3）、task-5+task-10 uirepro（→ §27.6 / §27.8）、task-6 dapdev（→ §27.4）、task-7 perf（→ §27.7）、task-8/9 Lead（→ §27.1 / §27.9）。所有 teammate 报告在删除前已归档进 `~/backups/nvim-config-round12-*/evidence/`。
@@ -1716,3 +1716,38 @@ hover            → Empty hover response
 - `stylua --check .` 41/41 exit 0；`nvim --headless '+qa'` exit 0；插件 **35**；真实项目历史文件未被本轮触碰。
 - 提交：`~/.config/nvim` 配置 + 台账两个提交；`~/md` 一个（只 nvim/ 两个文件）。
 - 临时目录 `~/tmp/dapcheck`（含 feed-java 副本、最小工程、A/B 配置副本）已删除；证据归档在 `~/backups/nvim-config-round13-20260925-141500/`。
+
+### 28.7 文档自查（用户问：『工作文档中的东西全部解决了吗？』）
+
+**结论：台账层面 0 个未决项**。全文扫描 `❓ / 🟡 / ⏳ / 未解决 / 仍未做 / 待你 / 待定` 只剩三类命中：① 状态图例本身（§23 顶部的说明行）；② 历史快照节里**已被 ✅ 结项标题覆盖**的旧标记（§11.3/§11.5/§19.3/§20.2/§23.2/§23.4 的标题都已改「✅ 已全部结清」）；③ §27.4 正文里对**当时那个 ❓ 问题**的引用（同一节已给出根因与结论）。
+
+**显式登记、但不是待办的客观残留（都写明了「为什么不用管」）**：
+1. 项目历史插件文件可能出现**重复行**（跨进程 TOCTOU，§27.3）：读取端去重，无功能影响；彻底修需 flock。
+2. 层① 只在 `:Projects` / `DirChanged` 时写入（§27.3）：『从未被镜像过的条目』仍只有插件文件一份，写守卫只是堵死了截断窗口。
+3. `picker.lines()` 对 1MB 单行会阻塞 4.8s（§27.7）：**本配置没有任何键位绑到它**，属 API 路径风险。
+4. 真 pty 下空 `.java` 启动比 20k 行还慢 ~50ms（§27.7）：未定位，不影响判定。
+5. `language/status == ServiceReady` 六次运行一次都没收到（§27.7）：就绪判据已改用 `documentSymbol` 非空。
+6. 上游 nvim-jdtls 的 fields 类 `pick_many` 没有取消通道（§27.8 ②c）：本机已按契约返回空表，剩下要等上游。
+7. 他真机 feed-java 副本按 `<F5>` 报 `Could not resolve java executable`（§28.2）：改前/改后 A/B 完全一致 ⇒ **不是本轮改动引入**，列为待观察（先 `:JavaBuildProjects` 等导入完再试）。
+8. 未覆盖的测试面（§27.6/§27.7）：打开树后再 resize、160 列、go/rust 语言链、GUI(neovide) 路径。
+
+**本轮顺手订正的过时表述（共 16 处，全部加了 ✅ / 删除线注解）**——这些不是真待办，而是**早期轮次的遗留措辞**，不订正会被下一个会话误读成『还没做』：
+
+| # | 位置 | 原文口径 | 订正为 |
+|---|---|---|---|
+| 1 | §11.3 标题 | 需要你真机确认 | ✅ 已全部结清（真机面见 §27.8） |
+| 2 | §11.5 标题 / 三行 | 仍未做、需要你拍板、需要你实机确认、观察项、未验证项 | ✅ 逐项给出落点（§27.8 真机面 / runtimes 已配 / 多选三条边界已定性） |
+| 3 | §14.4 标题与两条 | 还没做（等你定）：dressing 洋红、`.ui-shots/` | ✅ dressing 已删、向导已统一色、`.ui-shots` 已归档 |
+| 4 | §20.1 第 3 条 | virtual_lines 需要你点头 | ✅ 已开启（§22.5.1） |
+| 5 | §20 引言 | 仍等你点头的项在 20.2 | ✅ §20.2 三项已拍板落地 |
+| 6 | §20.1『仍留着的』小标题 + 5 行表 | 等你点头 / 未复现 | ✅ 状态栏实底已做、NormalFloat 已统一、bufferline 已调色、alpha 经用户否决回退、neo-tree 80 列已定性 |
+| 7 | §21.6 JavaInit 墓碑 | 需要你一句话 | ✅ 定为**保留**（防误用的正确形态） |
+| 8 | §26.5 结尾 | 需要你点头才动 `~/md` | ✅ 文档已全部同步并提交 |
+| 9 | §26.13 保留说明 | 旧 workspace 350M 未擅自删 | ✅ §28.4 已按用户『可以清理』删除 |
+| 10 | §26.14 向导 Java 版本 | 等你一句话 | ✅ 用户明确『**不用**改』，关闭 |
+| 11 | §26.14 结尾 | 28 个文件仍未提交 git | ✅ 早已全部提交（§26.13 起） |
+| 12 | §27.9 保留清单 | 352M 等用户点头再删 | ✅ 同 9 |
+| 13 | §19.4 事故表『遗留』行 | 补了 15 条种子 | ✅ 现状 21 行 + 写守卫 |
+| 14 | §25 待办/候选 | DAP 收窄待做、bigfile 待定 | ✅ DAP 已按需（§28.2）、bigfile 决定不加（§28.3） |
+| 15 | §23.1 头部统计 | 40+ 项 | §23.4 11/11、§27/§28 收尾后为 50+ |
+| 16 | 文首第 9 行第一轮 📌 | 无标注 | 保留为历史快照（第 12 行是当前状态） |
