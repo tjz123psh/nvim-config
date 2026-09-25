@@ -19,6 +19,7 @@ return {
     { "<leader>as", desc = "AI CLI：选工具（只列已安装）" },
     { "<leader>at", mode = { "n", "x" }, desc = "AI CLI：发送当前上下文" },
     { "<leader>ad", desc = "AI CLI：断开会话" },
+    { "<leader>aR", desc = "AI CLI：重启当前会话（重读 CLI 主题/配置）" },
     { "<C-.>", mode = { "n", "t", "i", "x" }, desc = "AI CLI：聚焦 CLI 窗口" },
   },
   opts = {
@@ -81,6 +82,41 @@ return {
     map("n", "<leader>ad", function()
       cli().close()
     end, { desc = "AI CLI：断开会话" })
+    -- 重启会话（2026-09-25 用户反馈「关了面板再开还是旧主题」）：
+    -- 会话是用 tmux 保持的（cli.mux.enabled = true）⇒ close() 只是 **detach**，
+    -- CLI 进程还活着，它只在启动时读一次自己的主题/配置 ⇒ 必须**结束进程**才会重读。
+    -- 这里：杀掉该会话对应的 tmux 会话 → 断开 → 用同一个工具重开（= 全新进程）。
+    -- 取"当前会话"：优先当前窗口（面板聚焦时），否则取任意一个活着的会话
+    local function current_terminal()
+      local terminals = require("sidekick.cli.terminal").terminals
+      local sid = vim.w[vim.api.nvim_get_current_win()].sidekick_session_id
+      if sid and terminals[sid] then
+        return terminals[sid]
+      end
+      for _, t in pairs(terminals) do
+        return t
+      end
+    end
+    map("n", "<leader>aR", function()
+      local t = current_terminal()
+      if not t then
+        vim.notify("当前没有 sidekick 会话（先用 <leader>aa / <leader>as 打开）", vim.log.levels.INFO)
+        return
+      end
+      local tool = t.tool and t.tool.name
+      local name = (t.id or ""):gsub("^terminal: ", "") -- tmux 会话名就是 "<工具> <hash>"
+      if name ~= "" then
+        vim.fn.system({ "tmux", "kill-session", "-t", name })
+      end
+      cli().close()
+      vim.defer_fn(function()
+        cli().show({ name = tool })
+      end, 150)
+      vim.notify(
+        "已重启 " .. tostring(tool) .. " 会话（会重新读取它自己的主题/配置）",
+        vim.log.levels.INFO
+      )
+    end, { desc = "AI CLI：重启当前会话（重读 CLI 主题/配置）" })
     map({ "n", "t", "i", "x" }, "<C-.>", function()
       cli().focus()
     end, { desc = "AI CLI：聚焦 CLI 窗口" })
