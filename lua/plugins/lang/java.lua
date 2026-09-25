@@ -632,19 +632,26 @@ return {
         config.root_dir = root_dir
         config.cmd = build_cmd(root_dir)
         config.on_attach = on_attach
-        -- 消掉 jdtls 每次启动都记的一条 ERROR：Command _java.reloadBundles.command not supported on client
-        -- 根因：Neovim 运行时**没有** workspace/executeClientCommand 的 handler（grep 过 runtime/lua/vim/lsp），
-        --   jdtls 发来的这条 client 命令拿到 "method not found"，于是记 ERROR。
-        --   bundles 已在启动时通过 init_options.bundles 传入，这里只需回一个**成功**应答（不做任何事）。
-        -- handler 必须在 config 里给（而不是启动后再补）：这条请求发生在初始化阶段，后补会晚于它。
-        -- 其它 client 命令仍按"未实现"回错，保持与原来一致的行为。
+        -- workspace/executeClientCommand 是**服务端→客户端**的请求（VS Code 里由 Java / Spring 扩展实现）。
+        -- 本机收到的两类：
+        --   · `_java.reloadBundles.command`（jdtls 要求客户端重载 bundles；bundles 已在启动时经
+        --     init_options.bundles 传入，nvim 侧无需再做）
+        --   · `vscode-spring-boot.ls.start`（spring-boot LS 的客户端命令；本配置由 spring-boot.nvim
+        --     独立拉起 LS，同样无需客户端动作）
+        -- handler 必须写在 config 里（而不是启动后再补）：第一条请求发生在初始化阶段。
+        --
+        -- ⚠ 这里踩过两个坑（2026-09-25 用户截图定位，nvim runtime 源码 rpc.lua:389-406）：
+        --   1. `return`（返回 nil）**不是"什么都不做"**：nvim 的 rpc.lua:398-406 在
+        --      "status=true 且 result==nil 且 err==nil" 时会主动抛
+        --      `method "…": either a result or an error must be sent to the server in response`
+        --      ⇒ 红色 `vim.schedule callback … rpc.lua:400` traceback，而且这条请求**永远不回**、
+        --      服务端一直挂着（第 11 轮"消 ERROR"其实只是把它换成了另一种报错）。
+        --   2. `error({code=-32601, …})` 会让服务端记 `SERVER_REQUEST_HANDLER_ERROR … Method not found`
+        --      ⇒ 又是一条红色通知。
+        -- 正解：**回一个空结果**（`vim.NIL` = 协议里的 JSON null）。收到即确认，不做事、不报错。
         config.handlers = {
-          ["workspace/executeClientCommand"] = function(_, result)
-            local cmd = type(result) == "table" and result.command or nil
-            if cmd == "_java.reloadBundles.command" then
-              return
-            end
-            error({ code = -32601, message = "Method not found: " .. tostring(cmd) })
+          ["workspace/executeClientCommand"] = function()
+            return vim.NIL
           end,
         }
         if started_bufs[bufnr] then

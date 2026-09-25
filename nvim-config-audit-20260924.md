@@ -1751,3 +1751,37 @@ hover            → Empty hover response
 | 14 | §25 待办/候选 | DAP 收窄待做、bigfile 待定 | ✅ DAP 已按需（§28.2）、bigfile 决定不加（§28.3） |
 | 15 | §23.1 头部统计 | 40+ 项 | §23.4 11/11、§27/§28 收尾后为 50+ |
 | 16 | 文首第 9 行第一轮 📌 | 无标注 | 保留为历史快照（第 12 行是当前状态） |
+
+---
+
+## 29. 第十三轮：用户截图报错修复 + 第二次全面审查（Agent Teams）（2026-09-25 晚间）
+
+> 用户：「这里还有一个 bug 错误，解决它；然后，再次来一次全面审查，用子代理的 agent team，并记录到文档中然后一起解决。」
+
+### 29.1 🔴 打开 Java 项目时的两条红色报错：`SERVER_REQUEST_HANDLER_ERROR … vscode-spring-boot.ls.start` + `rpc.lua:400` traceback（**已修复并验证**）
+
+**现象**（用户截图，14:59 打开 feed 项目）：
+```
+LSP[jdtls]: Error SERVER_REQUEST_HANDLER_ERROR: { code = -32601, message = "Method not found: vscode-spring-boot.ls.start" }
+vim.schedule callback: /usr/share/nvim/runtime/lua/vim/lsp/rpc.lua:400: method "workspace/executeClientCommand": either a result or an error must be sent to the server in response
+```
+
+**根因**：第 11 轮（§26.12）我为「消掉 jdtls 的 `_java.reloadBundles.command` ERROR」写的 handler **两处都写错了**（nvim runtime `rpc.lua:389-406` 源码可证）：
+
+| # | 当时的写法 | 实际后果 |
+|---|---|---|
+| 1 | `if cmd == "_java.reloadBundles.command" then return end`（返回 **nil**） | nvim 在 `status=true 且 result==nil 且 err==nil` 时会**主动抛错**：`method "…": either a result or an error must be sent to the server in response`（就是截图第二条 `rpc.lua:400` traceback），**并且这条请求永远不回、服务端一直挂着** ⇒ 第 11 轮所谓「ERROR 64→0」只是把**服务端**的 ERROR 换成了**客户端**的红色 traceback，代价是 jdtls 初始化期那条 client 请求悬空 |
+| 2 | `error({ code = -32601, message = "Method not found: " .. cmd })` | 服务端记 `SERVER_REQUEST_HANDLER_ERROR … Method not found: vscode-spring-boot.ls.start`（截图第一条） |
+
+**修法**：handler 一律**回一个空结果** `return vim.NIL`（协议里的 JSON null）——收到即确认，不做事也不报错。两类命令在 nvim 侧本来都不需要动作：`_java.reloadBundles.command` 的 bundles 已在启动时经 `init_options.bundles` 传入；`vscode-spring-boot.ls.start` 对应的 Spring Boot LS 由 `spring-boot.nvim` 独立拉起。代码见 `lua/plugins/lang/java.lua:635-655`（注释里写明了这两种错误写法，防止再踩）。
+
+**A/B 真机验证**（用你自己工程的**副本** + 唯一目录名 `lspcheck-proj`，避免再误伤你的 workspace）：
+
+| 指标（`:messages` 抓取，真 pty 开 Java 文件） | A = 旧 handler（HEAD） | B = 新 handler |
+|---|---|---|
+| `SERVER_REQUEST_HANDLER_ERROR` | **1** | **0** |
+| `rpc.lua:400` / `either a result or an error` | **1** | **0** |
+| `Method not found` | **1** | **0** |
+| 两个 client 是否都在 | jdtls id=1 / spring-boot id=2 | jdtls id=1 / spring-boot id=2 |
+
+**连带修好的东西**：§28.2 里记为「待观察」的 `<F5>` `Could not resolve java executable` **也一并消失了** —— 修复后在同一副本按 F5：`session_open=true`、`threads=25`、`javaExec_err=false`；该 workspace 的 jdtls `.metadata/.log` **ERROR 0 条**、`not supported on client` **0 次**。原因正是第 11 轮那条悬空请求让 jdtls 初始化期处于异常状态。
