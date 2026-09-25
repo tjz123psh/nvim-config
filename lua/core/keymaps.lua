@@ -182,13 +182,15 @@ map("n", "<leader>j", "mzJ`z", { desc = "合并下一行", silent = true })
 local cheatsheet = require("core.cheatsheet")
 map("n", "<leader>hk", cheatsheet.show, { desc = "快捷键速查" })
 
--- Markdown 阅读（markview.nvim）：打开 .md 就自动渲染，下面几个是手动控制
-map("n", "<leader>Mt", function()
-  require("markview").commands.Toggle()
-end, { desc = "Markdown：切换渲染" })
+-- Markdown 预览（md-render.nvim）：渲染到**独立窗口**，编辑缓冲区原样不动。
+-- 试过的其它路线：render-markdown / markview（就地渲染，会改编辑视图，透明主题下还有色带）、
+-- markdown-preview.nvim（浏览器）。这一版是"源码 + 渲染"并存，读的时候不影响改。
 map("n", "<leader>Mp", function()
-  require("markview").actions.splitToggle()
+  require("md-render").preview.show()
+end, { desc = "Markdown：浮动窗预览（开关）" })
+map("n", "<leader>Mt", function()
+  require("md-render").preview.show_tab()
+end, { desc = "Markdown：标签页预览（开关）" })
+map("n", "<leader>Ms", function()
+  require("md-render").preview.split()
 end, { desc = "Markdown：左右分屏（源码 + 渲染）" })
-map("n", "<leader>Mh", function()
-  require("markview").actions.hybridToggle()
-end, { desc = "Markdown：混合模式（光标行也保持渲染）" })

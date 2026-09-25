@@ -41,7 +41,7 @@ return {
       { "<leader>G", group = "代码生成（Java）" },
       { "<leader>J", group = "Java 测试 / 调试" },
       { "<leader>m", group = "Maven / Gradle 构建" },
-      { "<leader>M", group = "Markdown 渲染" },
+      { "<leader>M", group = "Markdown 预览" },
       { "<leader>o", group = "整理 import" },
       { "<leader>R", group = "重构：提取" },
 
