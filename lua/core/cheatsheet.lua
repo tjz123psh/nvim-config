@@ -203,12 +203,13 @@ local sections = {
     },
   },
   {
-    "Markdown 阅读（render-markdown）",
+    "Markdown 阅读（markview）",
     {
       { "<leader>Mt", "切换渲染（开/关）" },
-      { "<leader>Mp", "侧边预览（渲染后的副本）" },
-      { ":RenderMarkdown", "命令版：enable / disable / toggle / get / preview / config" },
-      { "打开 .md", "标题、列表、表格、代码块、复选框自动就地渲染（不需要浏览器）" },
+      { "<leader>Mp", "左右分屏：源码 + 渲染" },
+      { "<leader>Mh", "混合模式（光标行也保持渲染）" },
+      { ":Markview", "命令版：Toggle / Enable / Disable / splitToggle" },
+      { "打开 .md", "标题、列表、表格、代码块自动就地渲染（不需要浏览器）" },
     },
   },
   {
