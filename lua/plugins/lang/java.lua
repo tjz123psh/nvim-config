@@ -648,9 +648,31 @@ return {
         --      服务端一直挂着（第 11 轮"消 ERROR"其实只是把它换成了另一种报错）。
         --   2. `error({code=-32601, …})` 会让服务端记 `SERVER_REQUEST_HANDLER_ERROR … Method not found`
         --      ⇒ 又是一条红色通知。
-        -- 正解：**回一个空结果**（`vim.NIL` = 协议里的 JSON null）。收到即确认，不做事、不报错。
+        -- 正解有两层：
+        --   ① **必须先查有没有实现**：spring-boot.nvim 把 `vscode-spring-boot.ls.start`（classpath 握手，
+        --      最终调用 `sts.vscode-spring-boot.enableClasspathListening`）注册在**全局** `vim.lsp.commands`；
+        --      而 nvim-jdtls 本来也在**全局** `vim.lsp.handlers` 装了等价转发（jdtls.lua:854-874）。
+        --      ⚠ **client 级 handler 会盖掉全局那个**（client.lua:657）⇒ 必须把"先 client.commands、
+        --      再全局 vim.lsp.commands"这套查找自己复刻一遍，否则那条握手永远不执行：
+        --      后果是**没有 beans / endpoints / application.yml 的 spring.* 补全**（2026-09-25 审查线①发现，
+        --      这是第 11 轮引入的隐性功能回归）。
+        --   ② 查不到实现的命令（如 jdtls 的 `_java.reloadBundles.command`，nvim 侧本就无可做之事）
+        --      **回空结果 `vim.NIL`**（协议里的 JSON null）而不是上游的 MethodNotFound —— 这样 jdtls
+        --      不再记 ERROR；并且**绝不能 `return nil`**（见上面的坑 1）。
         config.handlers = {
-          ["workspace/executeClientCommand"] = function()
+          ["workspace/executeClientCommand"] = function(_, params, ctx)
+            params = params or {}
+            local client = vim.lsp.get_client_by_id(ctx.client_id) or {}
+            local commands = client.commands or {}
+            local global_commands = vim.lsp.commands or {}
+            local fn = commands[params.command] or global_commands[params.command]
+            if fn then
+              local ok, res = pcall(fn, params.arguments, ctx)
+              if ok then
+                return res == nil and vim.NIL or res
+              end
+              return vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, tostring(res))
+            end
             return vim.NIL
           end,
         }

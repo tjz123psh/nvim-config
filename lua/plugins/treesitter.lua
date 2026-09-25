@@ -8,7 +8,8 @@ return {
   "nvim-treesitter/nvim-treesitter",
   build = ":TSUpdate", -- 安装后自动更新解析器
   lazy = false, -- 新版 nvim-treesitter 不支持 lazy-loading
-  cmd = { "TSInstall", "TSUpdate", "TSConfigInfo" },
+  -- 2026-09-25 审查（§29.2.2 P3）：lazy=false 下 cmd 桩永不生效（插件启动即加载），
+  -- 命令由插件自带的 plugin/nvim-treesitter.lua 注册，这里删掉死桩。
 
   opts = {
     install_dir = vim.fn.stdpath("data") .. "/site",

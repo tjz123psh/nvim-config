@@ -5,7 +5,10 @@
 
 return {
   "WhoIsSethDaniel/mason-tool-installer.nvim",
-  event = "VeryLazy",
+  -- 2026-09-25 审查（§29.2.2 P3）：原先写的 event = "VeryLazy" 是**死触发器** ——
+  -- mason.lua 把它列为 eager 插件（lazy=false）的依赖，实测 32ms 就被 source 了，
+  -- VeryLazy 永远轮不到。这里删掉声明，与实际加载时机保持一致。
+  -- （安装列表本身照旧生效：它随 mason 在启动期加载。）
   dependencies = {
     "williamboman/mason.nvim",
   },

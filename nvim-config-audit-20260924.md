@@ -1785,3 +1785,39 @@ vim.schedule callback: /usr/share/nvim/runtime/lua/vim/lsp/rpc.lua:400: method "
 | 两个 client 是否都在 | jdtls id=1 / spring-boot id=2 | jdtls id=1 / spring-boot id=2 |
 
 **连带修好的东西**：§28.2 里记为「待观察」的 `<F5>` `Could not resolve java executable` **也一并消失了** —— 修复后在同一副本按 F5：`session_open=true`、`threads=25`、`javaExec_err=false`；该 workspace 的 jdtls `.metadata/.log` **ERROR 0 条**、`not supported on client` **0 次**。原因正是第 11 轮那条悬空请求让 jdtls 初始化期处于异常状态。
+
+### 29.2 第二次全面审查（Agent Teams，5 条线）
+
+> 用户：「再次来一次全面审查，用子代理的 agent team，并记录到文档中然后一起解决。」成员上限 8 人，因此复用已休眠的队友：`lspaudit`（新成员，task-11 LSP 全链路）、`docs-sync-audit`（task-12 静态配置）、`uirepro`（task-13 真机运行时走查）、`hist-stress`（task-14 数据安全/并发）、`perf`（task-15 启动·内存·索引回归）。下面边审边记，每条都带证据与状态。
+
+#### 29.2.1 🟠 审查过程中的基础设施发现：探针会泄漏 spring-boot 语言服务（28 个 / 8.1GB）
+
+- **现象**（perf 报告，我核实并清理）：`ps` 里有大量 `PPID=847`（systemd --user）的 java 进程 —— 既有没有父进程的 jdtls，也有 **`language-server.jar`（Spring Boot LS）**；总计 **28 个、约 8.1GB 常驻**，把 loadavg 抬到 **17**、可用内存压到 0，perf 的启动测量中位被污染（空会话 177.6ms vs 静默期 51.4ms）。
+- **根因**：探针收尾时只 kill 了 nvim/jdtls，而 Spring Boot LS 是 nvim **直接 spawn** 的子进程；父进程被 SIGKILL/超时杀掉后它被 reparent 到 systemd，于是一直活着。**不是配置缺陷**：你自己的会话正常退出时不会留（清理时没有任何 `feed-java-f631125a78` 的残留，而且你会话里的 jdtls/spring-boot 都挂在 nvim PID 下）。
+- **处理**：只杀 `PPID∈{1,847}` 且身份匹配 `org.eclipse.jdt.ls.core` / `language-server.jar` 的进程 —— **28 个全部 TERM 掉（0 个需要 -9），释放 8155MB**；你的会话（nvim 2379979 + jdtls + LS）与正在跑的探针树全程未动。
+- **收尾规则（已同步给两位队友，并写进技能 §18.9）**：kill 自己的 nvim/jdtls 之后，必须再补一轮『按自己的 workspace 或 PID 树』清 `language-server.jar`，并断言 `ps -eo ppid,args | grep java` 里没有 `PPID=847` 的残留。
+
+#### 29.2.2 审查线② 静态配置审查（task-12，docs-sync-audit 交付）—— P1 **0** / P2 **1** / P3 **9**
+
+方法：① 弃用 API 用**静态 grep + 运行时捕获**双查（`--cmd` 在配置加载前包 `vim.deprecate`，跑完启动 + `:checkhealth`）；② 死配置用脚本把 **52 个 spec 的 210 个 opts 字段**逐个对照本机已装插件源码，并加了「配置自己消费」判定；③ 懒加载用受控 headless（`--startuptime` + `package.loaded`）；④ 键位/命令三向提取比对（配置 97 键/17 命令 ↔ cheatsheet 112 项 ↔ `~/md`）。
+
+| 子项 | 结论 |
+|---|---|
+| ① 弃用 API | **0 命中**（静态 grep 只命中注释；运行时 `vim.deprecate` 捕获 0 条，`deprecations2.log` 不存在）。`vim.uv` / `vim.diagnostic.jump + on_jump` 均已是新 API |
+| ② 死配置 | 真死键 **6 个**：`snacks.lua` 的 `zoom`（真名 `zen`）、`util`/`list`/`job`（命名空间，非模块）、`git_linker`/`git_hosting`（已装 snacks 全仓 0 命中）。**澄清**：treesitter 的 `ensure_installed`/`highlight_filetypes`/`indent_filetypes*` **不是**死配置——main 分支重写的插件确实没这些选项，但配置自己在 `treesitter.lua:88/105/155/158` 消费它们 |
+| ③ 懒加载 | 35 插件启动加载 15、startup 67ms；`mason-tool-installer.lua:8` 的 `event="VeryLazy"` 是**死触发器**（被 eager 的 mason 依赖在 32ms 拉起）；`treesitter.lua:11` 的 `cmd` 桩在 `lazy=false` 下**永不生效**；**P2**：`core/lazy.lua:44-47` 的 `checker.enabled=true` 让每次启动（距上次 >1h）对全部插件 `git fetch`（`state.json` 里 `last_check=14:43` 证实），与「启动期不联网」冲突且 `notify=false` 静默失败 |
+| ④ 三向一致 | cheatsheet 缺口 **0**、命令缺口 0；md 缺 neo-tree `.` 1 条 —— 复核后是**误报**（`~/md/nvim/nvim快捷键.md:64` 已有正文说明，审计的表格提取器没抓正文）；4 个插件命令未记载（已补） |
+| ⑤ 卫生 | TODO/FIXME 0；`stylua --check` exit 0；`lazy-lock.json` 35 条 ↔ 已装 35 目录且 **35/35 commit 一致**；无孤儿模块；6 组重复 spec 记录为 P3（lazy 合并语义正确，非缺陷） |
+
+**「一起解决」的处置**（Lead 已落地，逐条对应）：
+
+| # | 审计发现 | 处置 |
+|---|---|---|
+| 1 | **P2** lazy 更新检查器启动即联网 | ✅ 已改 `core/lazy.lua`：`checker.enabled = false`（附注释说明取舍：需要看更新时手动 `:Lazy check`；代价是 `:Lazy` 里的更新徽标不再自动刷新） |
+| 2 | snacks 6 个伪模块键 | ✅ 已删（`snacks.lua`），并在原位留注释说明「为什么它们不是模块」 |
+| 3 | mason-tool-installer 的 `event` 死触发器 | ✅ 已删该行 + 注释写明「由 eager 的 mason 依赖拉起，实测 32ms 即 source」 |
+| 4 | treesitter 的 `cmd` 死桩 | ✅ 已删 + 注释（命令由插件自带 `plugin/nvim-treesitter.lua` 注册，启动即可用） |
+| 5 | md 缺 4 个插件命令 | ✅ 已补 2 行到 `~/md/nvim/nvim命令.md`（`:ToggleTerm`、`:TSInstall/:TSUpdate/:TSConfigInfo`） |
+| 6 | snacks health 报 `vim.ui.select is not set to Snacks.picker.select` | 📌 **登记为 known-benign**：这是真报错但**不能修**——那层 wrapper 是修「列表填满时底边框被吃掉」的（`snacks.lua:215-257`），包一层就必然让身份比较 `== Snacks.picker.select` 失败；已在 wrapper 上方加注释说明，功能路径完全正常 |
+| 7 | md 缺 neo-tree `.` | ❌ **误报**（`nvim快捷键.md:64` 已有），已在台账澄清、不改文档 |
+| 8 | devicons 启动期加载 / 6 组重复 spec | 📌 有意设计 + 非缺陷，仅记录（`core/lazy.lua:33-40` 注释已解释 `defaults.lazy=false` 的语义） |

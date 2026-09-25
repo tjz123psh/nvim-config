@@ -42,8 +42,12 @@ require("lazy").setup({
     colorscheme = { "catppuccin" }, -- 安装插件时用的临时主题
   },
   checker = {
-    enabled = true, -- 定期检查插件更新
-    notify = false, -- 但不弹通知（手动用 :Lazy check）
+    -- 2026-09-25 审查（§29.2.2 P2）：enabled=true 时 lazy 会在每次启动（距上次 >1h）对
+    -- **全部插件跑 git fetch**（lazy.nvim config.lua:343-346 → checker.start → manage git.fetch），
+    -- 与本配置「启动期不联网、联网走 Clash 代理」的前提冲突；notify=false 还会让失败静默。
+    -- 需要看有没有更新时手动跑一次 :Lazy check 即可（:Lazy 界面里的更新徽标因此不再自动刷新）。
+    enabled = false,
+    notify = false,
   },
   change_detection = {
     notify = false, -- 配置文件变更时不提示

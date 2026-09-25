@@ -212,6 +212,9 @@ return {
         },
       })
 
+      -- ⚠ 已知良性：:checkhealth snacks 会报 "vim.ui.select is not set to Snacks.picker.select" ——
+      --   因为下面这层 wrapper 让身份比较（== Snacks.picker.select）永远失败；功能完全正常
+      --   （wrapper 内部调用的就是 snacks 原函数，只是先收 2 行高度）。2026-09-25 审查线②核实并登记。
       -- snacks 的 ui.select 自带一个 layout.config（按条目数算列表高度，见 select.lua:44-52），
       -- 会**覆盖**上面预设里的高度修正 ⇒ 列表填满时底边框照样被吃掉（实测 30 项：
       -- box 20 / list 18@2）。snacks 是在 UIEnter 才把 vim.ui.select 指向自己，
@@ -311,7 +314,9 @@ return {
       --   现在 dressing 整个撤掉，输入也必须由 snacks 提供，否则只剩命令行输入。
       input = { enabled = true },
       scroll = { enabled = false },
-      zoom = { enabled = false },
+      -- 注：以前这里还有 zoom/util/list/job/git_linker/git_hosting 六个键 —— 2026-09-25 审查
+      -- （§29.2.2）逐个对照已装 snacks 源码：它们**都不是模块**（真名是 zen；util/list/job 是
+      -- 命名空间；git_linker/git_hosting 不存在），写在这里是纯噪音，已删除。
       zen = { enabled = false },
       toggle = { enabled = false },
       bigfile = { enabled = false },
@@ -321,15 +326,10 @@ return {
       image = { enabled = false },
       debug = { enabled = false },
       profiler = { enabled = false },
-      util = { enabled = false },
       git = { enabled = false },
-      git_linker = { enabled = false },
-      git_hosting = { enabled = false },
       rename = { enabled = false },
       bufdelete = { enabled = false },
       explorer = { enabled = false },
-      list = { enabled = false },
-      job = { enabled = false },
     },
   },
 }
