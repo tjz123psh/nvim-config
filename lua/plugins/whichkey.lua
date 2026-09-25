@@ -27,7 +27,7 @@ return {
     delay = 300,
     spec = {
       -- leader 前缀分组
-      { "<leader>a", group = "AI（CLI 面板 / 会话记录）" },
+      { "<leader>a", group = "AI CLI（sidekick）" },
       { "<leader>b", group = "缓冲区操作" },
       { "<leader>c", group = "代码操作" },
       { "<leader>d", group = "调试（DAP）" },

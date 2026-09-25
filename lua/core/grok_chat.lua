@@ -9,7 +9,7 @@
 --     ~/.grok/sessions/<cwd 的 URL 编码>/<session-id>/chat_history.jsonl
 --   这里把它渲染成一个**普通缓冲区**：可 j/k、滚轮、/ 搜索、复制 —— 彻底绕开 TUI 的限制。
 --
--- 用法：:GrokChat [目录]（默认当前 cwd）　快捷键 <leader>ah
+-- 用法：:GrokChat [目录]（默认当前 cwd）—— 只有命令，不占快捷键
 
 local M = {}
 

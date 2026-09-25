@@ -158,7 +158,6 @@ local sections = {
       { "<leader>at", "把当前上下文（{this}）发过去" },
       { "<leader>ad", "断开当前会话" },
       { "<C-.>", "聚焦 / 回到 CLI 窗口" },
-      { "<leader>ah", "看 grok 会话记录（只读缓冲区：滚轮/j/k/搜索都能用）" },
     },
   },
   {

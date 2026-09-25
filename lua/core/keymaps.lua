@@ -29,9 +29,6 @@ map("n", "<C-k>", "<C-w>k", { desc = "切换到上边窗口" })
 map("n", "<leader>vh", "<cmd>split<cr>", { desc = "水平切分窗口" })
 map("n", "<leader>vv", "<cmd>vsplit<cr>", { desc = "垂直切分窗口" })
 
--- AI：用只读缓冲区看 grok 最近的会话记录（绕开 TUI 不能滚的限制，见 core/grok_chat.lua）
-map("n", "<leader>ah", "<cmd>GrokChat<cr>", { desc = "看 grok 会话记录（可滚轮/搜索）" })
-
 -- 文件操作快捷键
 map("n", "<C-s>", "<cmd>write<cr>", { desc = "保存当前文件" })
 map("i", "<C-s>", "<C-o>:write<cr>", { desc = "保存当前文件（插入模式）" })
