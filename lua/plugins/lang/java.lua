@@ -578,7 +578,12 @@ return {
 
       vim.api.nvim_create_user_command("JavaSetRuntime", function(p)
         if jdtls_ready() then
-          jdtls.set_runtime(p.args)
+          -- 上游 jdtls.set_runtime(runtime) 用 `if runtime then` 分流：nargs="?" 不带参数时
+          -- p.args 是空字符串（Lua 里为真！），会被当成"运行时名"，结果只报
+          -- "Provided runtime `` not found in ..."、不弹选择列表。无参数必须传 nil 才会走
+          -- ui.pick_one_async 列出 runtimes（真机实测：修复前只见警告，修复后列出
+          -- JavaSE-21 / JavaSE-1.8）。
+          jdtls.set_runtime(p.args ~= "" and p.args or nil)
         end
       end, {
         desc = "切换 JDK（IDEA 的 Project SDK）",

@@ -84,8 +84,10 @@ return {
     vim.keymap.set("n", "<leader>db", function()
       dap.list_breakpoints(true)
     end, { desc = "断点列表" })
-    -- ⚠ vim.fn.input 取消(Esc)返回 ""，而 "" 在 Lua 里为真 ⇒ 旧写法在取消时照样设出一个
-    --   condition/logMessage 为空的"假"断点（2026-09-25 审查实测）。空输入直接不建并提示。
+    -- ⚠ vim.fn.input 取消(Esc)返回 ""，而 "" 在 Lua 里为真 ⇒ 旧写法在取消时照样设出一个断点。
+    --   2026-09-25 用原始 setBreakpoints 报文实测（java-debug 0.53.2）：空 logMessage / condition /
+    --   hitCondition 上游**不报错**，而是退化成**普通断点**（符号 ●、运行时会真的停住，不是"无害的假断点"）。
+    --   所以 Esc 取消时必须直接不建，并给出提示。
     vim.keymap.set("n", "<leader>dB", function()
       local cond = vim.fn.input("断点条件（Esc 取消）: ")
       if cond == "" then

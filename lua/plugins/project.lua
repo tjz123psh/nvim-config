@@ -87,5 +87,86 @@ return {
       end
       return changed
     end
+
+    -- 历史文件守卫（2026-09-25 并发压测复现，见 ~/tmp/nvim-audit/hist/report.md）：
+    -- project.nvim 的 write_projects_to_history() 只在 recent_projects == nil 时用追加模式；
+    -- 而 utils/history.lua 的**异步**读只要在"文件被别的实例截断成 0 字节"的窗口里返回，
+    -- recent_projects 就会变成**空表（非 nil）**⇒ 退出时按 mode="w" 截断写回，把磁盘上
+    -- 完整的历史覆盖成本进程内存里的那一份（压测实测：磁盘 352B/8 条 → 退出后 0 字节；
+    -- 若自有副本也没记录过这些条目，就是不可恢复的永久丢失）。
+    -- 修法：写之前比对"磁盘现有条目"与"本次准备写出的条目"；只要这次写会丢掉磁盘上
+    -- 已有条目，就降级为"只追加缺的那些"，**绝不截断**。正常情况（计划 ⊇ 磁盘）仍走原
+    -- 实现，插件自身的去重 / 裁剪 100 条语义完全不变。
+    local ok_hist, history = pcall(require, "project_nvim.utils.history")
+    local ok_path_utils, path_utils = pcall(require, "project_nvim.utils.path")
+    if ok_hist and ok_path_utils and type(history.write_projects_to_history) == "function" then
+      local original_write = history.write_projects_to_history
+
+      local function disk_entries()
+        local set = {}
+        local fh = io.open(path_utils.historyfile, "r")
+        if not fh then
+          return set
+        end
+        local data = fh:read("*a")
+        fh:close()
+        for line in data:gmatch("[^\r\n]+") do
+          local dir = vim.trim(line)
+          if dir ~= "" then
+            set[dir] = true
+          end
+        end
+        return set
+      end
+
+      history.write_projects_to_history = function()
+        local ok, err = pcall(function()
+          local disk = disk_entries()
+          local planned, list = {}, {}
+          for _, dir in ipairs(history.get_recent_projects()) do
+            if not planned[dir] then
+              planned[dir] = true
+              list[#list + 1] = dir
+            end
+          end
+
+          -- 本次计划里没有、但磁盘上还留着的条目 —— 截断就会永久丢掉它们
+          local would_lose = false
+          for dir in pairs(disk) do
+            if not planned[dir] then
+              would_lose = true
+              break
+            end
+          end
+          if not would_lose then
+            original_write() -- 计划 ⊇ 磁盘：原行为（含去重与裁剪 100 条）
+            return
+          end
+
+          local missing = {}
+          for _, dir in ipairs(list) do
+            if not disk[dir] then
+              missing[#missing + 1] = dir
+            end
+          end
+          if #missing == 0 then
+            return -- 磁盘是本次计划的超集：什么都不写，更不许截断
+          end
+
+          pcall(path_utils.create_scaffolding)
+          local fh = io.open(path_utils.historyfile, "a")
+          if not fh then
+            return
+          end
+          fh:write(table.concat(missing, "\n") .. "\n")
+          fh:close()
+        end)
+        if not ok then
+          -- 守卫自身出错时也要保证历史文件不被半截覆盖
+          vim.notify("项目历史写回守卫异常，已回退原实现: " .. tostring(err), vim.log.levels.WARN)
+          pcall(original_write)
+        end
+      end
+    end
   end,
 }
