@@ -23,7 +23,43 @@ return {
   },
   opts = {
     nes = { enabled = false }, -- 不接 Copilot（本机既无 copilot-language-server 也无订阅）
-    cli = { mux = { backend = "tmux", enabled = true } }, -- 会话用 tmux 保持（本机有 tmux）
+    cli = {
+      mux = { backend = "tmux", enabled = true }, -- 会话用 tmux 保持（本机有 tmux）
+      win = {
+        keys = {
+          -- 往上翻看 AI 输出（2026-09-25 用户提问）：
+          -- codex / opencode 这类 CLI 跑在**全屏 TUI（备用屏幕）**里，历史输出**不进** nvim 的
+          -- 终端缓冲 ⇒ 按 jk 回普通模式后 k / 滚轮都翻不到东西（那不是 bug，是备用屏幕的特性）。
+          -- sidekick 的做法是让 tmux 抓最近 2000 行（cli.mux.dump）另开一个可翻可搜的缓冲区。
+          -- 上游默认只在你**把滚轮放在面板上滚**时打开它；这里再给一个键盘入口（Alt+U）。
+          -- 打开后：j/k、<C-u>/<C-d>、gg/G、/ 搜索都能用；按 i 回到实时 CLI。
+          -- ⚠ opencode 被上游标记 native_scroll = true ⇒ 它没有 scrollback，要用它自己的滚动键。
+          scrollback = {
+            "<M-u>",
+            function(t)
+              local sb = t.scrollback
+              if not (sb and require("sidekick.cli.scrollback").is_enabled(t)) then
+                vim.notify(
+                  "这个 CLI 自己处理滚动（如 opencode）：用它自己的翻页键或鼠标",
+                  vim.log.levels.INFO
+                )
+                return
+              end
+              if sb:is_open() then
+                sb:close() -- 再按一次：回到实时 CLI
+              else
+                sb:update({ open = true })
+                if vim.fn.mode() == "t" then
+                  vim.cmd.stopinsert() -- 直接进普通模式，可以立刻 j/k 翻
+                end
+              end
+            end,
+            mode = "nt",
+            desc = "历史输出：开关 scrollback（打开后 j/k、<C-u>/<C-d>、gg/G、/ 搜索；再按一次或按 i 回实时）",
+          },
+        },
+      },
+    },
   },
   config = function(_, opts)
     require("sidekick").setup(opts)

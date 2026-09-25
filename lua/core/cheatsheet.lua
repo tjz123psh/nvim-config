@@ -158,6 +158,7 @@ local sections = {
       { "<leader>at", "把当前上下文（{this}）发过去" },
       { "<leader>ad", "断开当前会话" },
       { "<C-.>", "聚焦 / 回到 CLI 窗口" },
+      { "<M-u>", "历史输出：开关 scrollback（打开后 j/k 翻，再按一次回实时）" },
     },
   },
   {
