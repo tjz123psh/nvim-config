@@ -7,8 +7,7 @@
 -- <leader>ad 断开 / <C-.> 聚焦。**不用 cli.mux（tmux）** —— CLI 直接跑在 nvim 终端里。
 --
 -- 2026-09-25 按用户要求「重装干净点」：此前为「滚轮/翻历史」加的一堆自定义键
--- （<M-u> scrollback、<ScrollWheelUp/Down> 翻译、<leader>aR 重启会话）已全部移除。
--- 要看 grok 的对话历史用 :GrokChat（core/grok_chat.lua，普通缓冲区可滚可搜）。
+-- （<M-u> scrollback、<ScrollWheelUp/Down> 翻译、<leader>aR 重启会话、:GrokChat 会话记录）已全部移除。
 -- ============================================
 
 return {
