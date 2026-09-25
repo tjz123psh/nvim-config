@@ -181,3 +181,11 @@ map("n", "<leader>j", "mzJ`z", { desc = "合并下一行", silent = true })
 
 local cheatsheet = require("core.cheatsheet")
 map("n", "<leader>hk", cheatsheet.show, { desc = "快捷键速查" })
+
+-- Markdown 阅读（render-markdown.nvim）：打开 .md 就自动渲染，下面两个是手动控制
+map("n", "<leader>Mt", function()
+  require("render-markdown").toggle()
+end, { desc = "Markdown：切换渲染" })
+map("n", "<leader>Mp", function()
+  require("render-markdown").preview()
+end, { desc = "Markdown：侧边预览" })

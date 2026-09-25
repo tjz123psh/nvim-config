@@ -203,6 +203,15 @@ local sections = {
     },
   },
   {
+    "Markdown 阅读（render-markdown）",
+    {
+      { "<leader>Mt", "切换渲染（开/关）" },
+      { "<leader>Mp", "侧边预览（渲染后的副本）" },
+      { ":RenderMarkdown", "命令版：enable / disable / toggle / get / preview / config" },
+      { "打开 .md", "标题、列表、表格、代码块、复选框自动就地渲染（不需要浏览器）" },
+    },
+  },
+  {
     "消息与报错（noice）",
     {
       { "<leader>he", "最近的报错（:Noice errors）" },
