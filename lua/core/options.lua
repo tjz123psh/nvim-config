@@ -9,6 +9,17 @@ vim.g.loaded_python3_provider = 0
 vim.g.loaded_perl_provider = 0
 vim.g.loaded_ruby_provider = 0
 
+-- 让 :terminal 里的 TUI 知道"这里支持真彩色"
+-- nvim 给 :terminal 子进程只设 TERM=xterm-256color、**不设 COLORTERM**（实测），
+-- 于是 grok / opencode 这类 TUI 会判定为非真彩色并**隐藏需要 truecolor 的主题**：
+--   TERM=xterm-256color           → grok doctor: color 256   · themes 2/5
+--   COLORTERM=truecolor 再加上    → grok doctor: color truecolor · themes all
+-- nvim 自己的终端模拟器与 Neovide 都支持 24 位色，所以补上这个变量；
+-- 用户已显式设过 COLORTERM 时不覆盖。
+if (vim.env.COLORTERM or "") == "" then
+  vim.env.COLORTERM = "truecolor"
+end
+
 -- 界面显示
 vim.o.number = true -- 显示行号
 vim.o.relativenumber = false -- 不显示相对行号，保持行号稳定易读
