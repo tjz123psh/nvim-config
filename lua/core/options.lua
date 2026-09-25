@@ -74,6 +74,48 @@ do
   end
 end
 
+-- 按「显示宽度」折行（CJK 算 2 列）。为什么需要：virtual_lines 的渲染器用
+-- virt_lines_overflow='scroll'，**自己不折行** —— 消息超过窗口宽度就被右边缘直接裁掉
+-- （2026-09-25 用户截图：`…for the arguments (Instant, OffsetDat` 被切掉）。
+-- 但它按 \n 切分消息（runtime/lua/vim/diagnostic.lua:2138 的 gmatch('([^\n]+)')），
+-- 每行都会带 └──── 前缀、续行缩进 6 格对齐 ⇒ 我们自己把 \n 插进去就能完整显示。
+local function wrap_message(text, width)
+  local out = {}
+  for _, para in ipairs(vim.split(text, "\n", { plain = true })) do
+    local line, line_w = "", 0
+    for _, word in ipairs(vim.split(para, "%s+", { trimempty = true })) do
+      local word_w = vim.fn.strdisplaywidth(word)
+      if line_w > 0 and line_w + 1 + word_w > width then
+        out[#out + 1] = line
+        line, line_w = "", 0
+      end
+      if word_w > width then -- 超长 token（长包名 / 长签名）硬断
+        for _, ch in ipairs(vim.fn.split(word, "\\zs")) do
+          local cw = vim.fn.strdisplaywidth(ch)
+          if line_w + cw > width and line_w > 0 then
+            out[#out + 1] = line
+            line, line_w = "", 0
+          end
+          line, line_w = line .. ch, line_w + cw
+        end
+      else
+        if line_w > 0 then
+          line, line_w = line .. " ", line_w + 1
+        end
+        line, line_w = line .. word, line_w + word_w
+      end
+    end
+    if line_w > 0 then
+      out[#out + 1] = line
+    end
+  end
+  if #out > 12 then -- 超长消息别把整屏占满；按 ]d 弹的浮窗里仍是完整的
+    out = vim.list_slice(out, 1, 12)
+    out[12] = out[12] .. " …"
+  end
+  return table.concat(out, "\n")
+end
+
 -- 诊断提示样式
 vim.diagnostic.config({
   -- 同一行有多条诊断时，行尾 virt_text 只显示「最后一条」（runtime diagnostic.lua:2277），
@@ -92,9 +134,16 @@ vim.diagnostic.config({
   virtual_lines = {
     current_line = true, -- 光标所在行：把诊断整行展开在下一行（长消息不再被行尾截断）
     severity = { min = vim.diagnostic.severity.WARN },
-    -- 默认格式是 "[code] message"，jdtls 的 code 是内部诊断号（如 [603979884]），去掉
+    -- 默认格式是 "[code] message"，jdtls 的 code 是内部诊断号（如 [603979884]），去掉；
+    -- 并按窗口宽度折行（virtual_lines 自己不折，见上面 wrap_message 的注释）。
     format = function(d)
-      return d.message
+      local wins = vim.fn.win_findbuf(d.bufnr or 0)
+      local win = wins[1] or vim.api.nvim_get_current_win()
+      local info = vim.fn.getwininfo(win)[1]
+      local textoff = (info and info.textoff) or 0
+      local ok, win_w = pcall(vim.api.nvim_win_get_width, win)
+      local width = (ok and win_w or vim.o.columns) - textoff - 7 -- 7 = "└──── " 前缀 + 1 余量
+      return wrap_message(d.message, math.max(20, width))
     end,
   },
   underline = true, -- 错误范围画波浪线
