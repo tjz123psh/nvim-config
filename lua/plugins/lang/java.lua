@@ -673,6 +673,14 @@ return {
               end
               return vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, tostring(res))
             end
+            -- 没实现的命令要给 jdtls 一个「它认得的空结果」：JDTLanguageServer.synchronizeBundles()
+            -- 对 _java.reloadBundles.command 的返回值做 instanceof List → loadBundles /
+            -- instanceof Map → logError / **其它（含 null）→ logError("Unexpected result …")**，
+            -- 所以回 vim.NIL 仍会让它记一条 !MESSAGE 错误（2026-09-25 审查线①用 javap 反编译核实）。
+            -- 回**空表**在协议里编码成 JSON `[]` ⇒ 命中 List 且 size=0 ⇒ 什么都不做、也不报错。
+            if params.command == "_java.reloadBundles.command" then
+              return {}
+            end
             return vim.NIL
           end,
         }
