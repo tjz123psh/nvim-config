@@ -22,11 +22,6 @@ return {
       direction = "float", -- 默认浮动
       close_on_exit = false, -- 命令结束后保留终端和输出，便于查看测试结果
       auto_scroll = true,
-      -- 终端窗口恢复实底：toggleterm 在 open() 里先 ui.hl_term() 覆盖 winhighlight、之后才调
-      -- on_open（terminal.lua:504），所以必须在这里再补一次，否则透明主题下浮窗会透出壁纸。
-      on_open = function(term)
-        require("core.term_bg").apply(term.window)
-      end,
       float_opts = {
         border = "rounded",
         winblend = 0, -- 匹配 kitty background_opacity 0.8

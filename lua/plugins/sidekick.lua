@@ -28,26 +28,6 @@ return {
   config = function(_, opts)
     require("sidekick").setup(opts)
 
-    -- 面板背景必须是实底：sidekick 的终端窗口用 winhighlight 把 Normal 指向 SidekickChat
-    -- （lua/sidekick/cli/terminal.lua:47），但它**自己没定义这个组**、官方文档也没提 ⇒
-    -- 未定义 = 没有背景色，在 transparent_background 主题下壁纸直接透进面板，CLI 的次要文字
-    -- （ANSI 8 灰 #7f849c）糊在壁纸上、看着像"主题被 nvim 带跑偏"（2026-09-25 用户截图）。
-    -- 这里补一个实底版本，与 picker / 状态栏同色（base #1e1e2e），换主题后重新应用。
-    local function solid_panel_bg()
-      local ok, pal = pcall(function()
-        return require("catppuccin.palettes").get_palette()
-      end)
-      vim.api.nvim_set_hl(0, "SidekickChat", {
-        bg = ok and pal.base or "#1e1e2e",
-        fg = ok and pal.text or "#cdd6f4",
-      })
-    end
-    solid_panel_bg()
-    vim.api.nvim_create_autocmd("ColorScheme", {
-      callback = solid_panel_bg,
-      desc = "sidekick 终端面板保持实底（补它未定义的 SidekickChat）",
-    })
-
     local map = vim.keymap.set
     local cli = function()
       return require("sidekick.cli")

@@ -9,4 +9,3 @@ require("core.keymaps") -- 全局快捷键映射
 require("core.commands") -- 自定义命令（:R、:A、:Projects、:JavaRun、:LspInfo、:LspLog）
 require("core.autocmds") -- 自动命令（特定操作的自动触发）
 require("core.cjk_punct") -- 中文标点输入即转半角（:CJKPunct 开关 / :CJKPunctFix 整篇转换）
-require("core.term_bg").setup() -- 终端窗口实底背景（透明主题下 :terminal / 浮窗不透出壁纸）
