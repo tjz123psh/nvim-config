@@ -141,9 +141,27 @@ return {
       end
 
       local jdtls = require("jdtls")
-      local jdtls_dap = require("jdtls.dap")
-      local dap = require("dap")
       local on_attach = require("core.lsp_on_attach")
+
+      ------------------------------------------------------------------
+      -- DAP 按需加载（2026-09-25，台账 §28.1）
+      ------------------------------------------------------------------
+      -- 原来这里是 `local jdtls_dap = require("jdtls.dap")` + `local dap = require("dap")`，
+      -- 加上下面无条件的 jdtls.setup_dap()，会让**打开任意 .java 文件**就把
+      -- nvim-dap + nvim-dap-ui + nvim-nio + nvim-dap-virtual-text 整条链同步拉起来
+      -- （实测 startuptime：require('dap') 在 69.8ms 处，整条链 31 个条目 + nio 12 个）。
+      -- 现在把 Java 特有的 DAP 接线推迟到"真的要调试 Java"时：下面每个用到 dap 的
+      -- handler 先调 ensure_java_dap()（幂等）——它会 require("dap")（lazy 的模块加载器
+      -- 顺手把插件装上并跑它的 config）再把 Java 适配器 / 热替换监听注册好。
+      local java_dap_wired = false
+      local function ensure_java_dap()
+        local dap = require("dap")
+        if not java_dap_wired then
+          java_dap_wired = true
+          jdtls.setup_dap({ hotcodereplace = "auto" })
+        end
+        return dap
+      end
 
       ------------------------------------------------------------------
       -- 字段/方法多选：Tab 勾选、CR 确认、Esc 取消
@@ -311,8 +329,8 @@ return {
       end
       opts.root_dir = resolve_root(0)
 
-      -- 注册适配器: 找 jdtls client → startDebugSession → port（只执行一次）
-      jdtls.setup_dap({ hotcodereplace = "auto" })
+      -- 注册适配器（找 jdtls client → startDebugSession → port）已挪进 ensure_java_dap()，
+      -- 不再在这里无条件执行——否则打开 .java 就会拖起整条 nvim-dap 链（见上方注释）。
 
       ------------------------------------------------------------------
       -- 构建 / 运行：自动在 mvnw / gradlew / mvn / gradle 之间选择
@@ -366,6 +384,7 @@ return {
       -- 调试：优先用 jdtls 扫出来的主类，扫不到才回退手工输入
       ------------------------------------------------------------------
       local function pick_main_and_run(configs)
+        local dap = ensure_java_dap() -- 按需加载 nvim-dap（见文件顶部注释）
         if #configs == 1 then
           dap.run(configs[1])
           return
@@ -384,6 +403,8 @@ return {
       end
 
       local function debug_java()
+        local dap = ensure_java_dap()
+        local jdtls_dap = require("jdtls.dap")
         local configs = dap.configurations.java or {}
         if #configs > 0 then
           pick_main_and_run(configs)
@@ -491,7 +512,8 @@ return {
         -- 调试
         vim.keymap.set("n", "<F5>", debug_java, d("Java: 调试（自动识别主类）"))
         vim.keymap.set("n", "<leader>Jd", function()
-          jdtls_dap.setup_dap_main_class_configs({ verbose = true })
+          ensure_java_dap()
+          require("jdtls.dap").setup_dap_main_class_configs({ verbose = true })
         end, d("Java: 重新扫描主类"))
 
         -- 测试默认走 Maven/Gradle 终端，结果不会随着 DAP 面板关闭而消失
