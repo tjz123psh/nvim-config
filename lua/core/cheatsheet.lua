@@ -29,14 +29,16 @@ local sections = {
       { "<C-CR>", "下方新建空行（i）" },
       { "s", "Flash 跳转（n,x,o）" },
       { "S", "Flash Treesitter 选择（n,x,o）" },
+      { "<leader>hk", "打开/关闭本速查面板" },
+      { "<leader>", "Leader 键（所有 <leader>xx 的前缀）" },
     },
   },
   {
     "窗口操作",
     {
       { "<C-h/j/k/l>", "切换窗口" },
-      { "<leader>sh", "水平分割" },
-      { "<leader>sv", "垂直分割" },
+      { "<leader>vh", "水平分割" },
+      { "<leader>vv", "垂直分割" },
       { "<leader>q", "关闭窗口" },
       { "<leader>wq", "保存并关闭" },
     },
@@ -50,11 +52,21 @@ local sections = {
       { "<leader>bd", "关闭当前缓冲区" },
     },
   },
-  { "文件树", {
-    { "<leader>e", "打开/关闭文件树" },
-  } },
   {
-    "搜索（Telescope）",
+    "文件树（neo-tree）",
+    {
+      { "<leader>e", "打开/关闭文件树" },
+      { "Enter / o", "打开文件或目录" },
+      { "h / l", "上级目录 / 设为根" },
+      { "a / d / r / m", "新建 / 删除 / 重命名 / 移动" },
+      { "c / y / x / p", "复制 / 复制到剪贴板 / 剪切 / 粘贴" },
+      { "H", "显示/隐藏隐藏文件" },
+      { "Z", "递归展开光标所在节点的所有子节点" },
+      { ".", "已禁用（避免在树里误触）" },
+    },
+  },
+  {
+    "搜索（snacks picker）",
     {
       { "<leader>ff", "搜索文件名" },
       { "<leader>fg", "搜索文件内容" },
@@ -65,18 +77,29 @@ local sections = {
     },
   },
   {
-    "代码导航（LSP）",
+    "选择器通用键（snacks picker）",
+    {
+      { "<C-j> / <C-k>", "上/下移动（等同 <C-n> / <C-p>）" },
+      { "<CR>", "确认选中" },
+      { "<Tab> / <S-Tab>", "多选：勾选并下移 / 上移" },
+      { "<Space>", "勾选/取消（多选列表：jdtls 主类、字段/方法选择等）" },
+      { "<Esc> / <C-c>", "取消（不选中任何项）" },
+      { "/", "在列表内搜索" },
+    },
+  },
+  {
+    "代码导航（LSP：需 LSP 附加）",
     {
       { "gd", "跳转到定义" },
       { "gR", "跳转到类型定义" },
-      { "gr", "查找引用" },
+      { "grr / gra / grn", "内置 LSP：查找引用 / 代码操作 / 重命名" },
       { "gi", "跳转到实现" },
       { "gh", "悬停文档" },
       { "[d / ]d", "上一个/下一个诊断" },
     },
   },
   {
-    "代码操作",
+    "代码操作（需 LSP）",
     {
       { "<leader>rn", "重命名符号" },
       { "<leader>ca", "代码操作" },
@@ -85,10 +108,11 @@ local sections = {
     },
   },
   {
-    "补全（blink.cmp）",
+    "补全（blink.cmp：插入模式）",
     {
-      { "Enter / Tab", "选中当前项" },
-      { "Tab / Shift-Tab", "前后跳转片段占位符" },
+      { "Enter", "选中当前项" },
+      { "Shift-Tab", "跳上一个片段占位符" },
+      { "Tab", "neotab 接管：括号/引号内按 Tab 跳到外侧（不是接受补全）" },
       { "<C-n> / <C-p>", "选择下一项/上一项" },
       { "<C-e>", "关闭补全菜单" },
       { "<C-u> / <C-d>", "文档翻页" },
@@ -105,7 +129,7 @@ local sections = {
     "调试（DAP）",
     {
       { "<leader>dl", "重跑上次调试" },
-      { "<leader>db", "断点列表（telescope）" },
+      { "<leader>db", "断点列表（打开 quickfix 窗口）" },
       { "<leader>dB", "条件断点" },
       { "<leader>dL", "日志断点" },
       { "<leader>dC", "清除所有断点" },
@@ -125,16 +149,20 @@ local sections = {
     },
   },
   {
-    "Java / Spring Boot",
+    "Java / Spring Boot（需 Java 缓冲区）",
     {
       { "<F5>", "Java: 调试（自动扫描主类，多个则选择）" },
       { "<leader>Jd", "Java: 重新扫描主类列表" },
-      { "<leader>Jt", "Java: 运行光标处测试方法" },
-      { "<leader>JT", "Java: 运行当前测试类" },
+      { "<leader>Jt", "Java: 终端运行光标处测试方法" },
+      { "<leader>JT", "Java: 终端运行当前测试类" },
+      { "<leader>Jg / <leader>JG", "Java: 调试测试方法 / 测试类" },
       { "<leader>co / <leader>ca", "代码操作" },
       { "<leader>ot", "整理 import" },
-      { "gU", "跳转到父类/接口实现" },
-      { "<leader>Rv / Rm / Rc", "提取变量 / 方法 / 常量（先可视模式选中）" },
+      { "gA", "跳转到父类/接口实现" },
+      {
+        "<leader>Rv / Rm / Rc / RV",
+        "提取变量 / 方法 / 常量 / 所有重复表达式（可视=按选区，普通=按光标处表达式）",
+      },
       { "<leader>sr", "Spring Boot: 运行项目" },
       { "<leader>sp", "Spring Boot 向导（11 步可搜索选择）" },
       { "<leader>sP", "原版向导（不推荐：Boot 4 版本号有 bug）" },
@@ -142,16 +170,16 @@ local sections = {
     },
   },
   {
-    "Maven / Gradle",
+    "Maven / Gradle（需 Java 项目）",
     {
-        { "<leader>mc", "编译" },
-        { "<leader>mt", "跑测试" },
-        { "<leader>mp", "打包（跳过测试）" },
-        { "<leader>mi", "安装到本地仓库" },
-        { "<leader>mn", "清理" },
-        { "<leader>ml", "依赖树" },
-        { "<leader>mb", "jdtls 重新导入/构建（改 pom 后用）" },
-        { ":JavaBuildProjects", "同上（命令版）" },
+      { "<leader>mc", "编译" },
+      { "<leader>mt", "跑测试" },
+      { "<leader>mp", "打包（跳过测试）" },
+      { "<leader>mi", "安装到本地仓库" },
+      { "<leader>mn", "清理" },
+      { "<leader>ml", "依赖树" },
+      { "<leader>mb", "jdtls 重新导入/构建（改 pom 后用）" },
+      { ":JavaBuildProjects", "同上（命令版）" },
       { ":JavaSetRuntime", "切换 JDK（IDEA 的 Project SDK）" },
     },
   },
@@ -164,6 +192,13 @@ local sections = {
     },
   },
   {
+    "消息与报错（noice）",
+    {
+      { "<leader>he", "最近的报错（:Noice errors）" },
+      { "<leader>hh", "全部消息历史（:Noice history）" },
+    },
+  },
+  {
     "自定义命令",
     {
       { ":R", "重载当前 Lua 配置文件" },
@@ -172,10 +207,19 @@ local sections = {
       { ":LspInfo", "查看 LSP 客户端状态" },
       { ":LspLog", "打开 LSP 日志" },
       { ":JavaRun", "运行当前 Java 单文件" },
+      { ":JavaBuildProjects", "jdtls 重新导入/构建（需 Java 项目）" },
+      { ":JavaSetRuntime", "切换 JDK（需 Java 项目）" },
+      { ":PickerSkin soft|pink", "切换 picker 皮肤（默认 soft；pink 为向导洋红）" },
+      { ":SpringBootCreate", "Spring Boot 项目向导（同 <leader>sp）" },
+      { ":SpringBoot / :SpringBootNewProject", "spring-boot.nvim 命令 / 原版向导" },
+      { ":TSInstall / :TSUpdate / :TSConfigInfo", "Treesitter 解析器安装 / 更新 / 状态" },
+      { ":Alpha / :Neotree / :ToggleTerm", "欢迎页 / 文件树 / 终端" },
     },
   },
 }
 
+-- 面板配色与 picker 保持一致（soft 皮肤由 plugins/snacks.lua 的 apply_skin() 覆盖；
+-- 这里只给一份 default 兜底 link，粉色皮肤时就回落到主题色）。
 local function define_highlights()
   vim.api.nvim_set_hl(0, "CheatSheetTitle", { link = "Title", default = true })
   vim.api.nvim_set_hl(0, "CheatSheetHint", { link = "Comment", default = true })
@@ -183,6 +227,12 @@ local function define_highlights()
   vim.api.nvim_set_hl(0, "CheatSheetSeparator", { link = "FloatBorder", default = true })
   vim.api.nvim_set_hl(0, "CheatSheetKey", { link = "Special", default = true })
   vim.api.nvim_set_hl(0, "CheatSheetText", { link = "NormalFloat", default = true })
+  -- ⚠ 窗标题/边框/底色必须走 winhl 映射（FloatTitle 默认带蓝底、FloatBorder 默认是主题蓝），
+  --   否则这个面板永远和 picker 不是一个色系（2026-09-25 实测：边框 #89b4fa、标题栏蓝底）。
+  vim.api.nvim_set_hl(0, "CheatSheetBg", { link = "NormalFloat", default = true })
+  vim.api.nvim_set_hl(0, "CheatSheetBorder", { link = "FloatBorder", default = true })
+  vim.api.nvim_set_hl(0, "CheatSheetWinTitle", { link = "FloatTitle", default = true })
+  vim.api.nvim_set_hl(0, "CheatSheetBar", { link = "Comment", default = true })
 end
 
 local function pad_right(text, width)
@@ -225,17 +275,31 @@ function M.show()
     end
   end
 
-  add("  " .. pad_right("常用快捷键", body_width - 12) .. "q / Esc 关闭", "CheatSheetTitle")
+  -- 同一行可以有多段高亮（顶栏的标题 + 灰色提示、小节的 ▍ + 蓝色名字）
+  local function add_mark(row_idx, start_col, end_col, hl)
+    table.insert(key_marks, { row = row_idx, start_col = start_col, end_col = end_col, hl = hl })
+  end
+
+  do
+    local head = "  ▍ 常用快捷键"
+    -- 内容 120+ 行、小终端一屏放不下：必须提示能滚（j/k、<C-d>/<C-u>、gg/G 都可用）
+    local hint = "j/k 滚动 · q / Esc 关闭  "
+    add(pad_right(head, body_width - vim.fn.strdisplaywidth(hint)) .. hint)
+    add_mark(0, 0, #head, "CheatSheetTitle")
+    add_mark(0, #lines[1] - #hint, #lines[1], "CheatSheetHint")
+  end
   add("  " .. string.rep("─", body_width), "CheatSheetSeparator")
 
   for _, sec in ipairs(sections) do
     add("")
-    add("  ▍ " .. sec[1], "CheatSheetSection")
+    add("  ▍ " .. sec[1])
+    add_mark(#lines - 1, 2, 5, "CheatSheetBar") -- "  ▍" 的 ▍（3 字节）
+    add_mark(#lines - 1, 5, #lines[#lines], "CheatSheetSection")
     for _, item in ipairs(sec[2]) do
       local key = item[1]
       local line = "    " .. pad_right(key, key_width) .. item[2]
       add(line, "CheatSheetText")
-      table.insert(key_marks, { row = #lines - 1, start_col = 4, end_col = 4 + #key })
+      add_mark(#lines - 1, 4, 4 + #key, "CheatSheetKey")
     end
   end
 
@@ -267,7 +331,7 @@ function M.show()
   for _, mark in ipairs(key_marks) do
     vim.api.nvim_buf_set_extmark(buf, ns, mark.row, mark.start_col, {
       end_col = mark.end_col,
-      hl_group = "CheatSheetKey",
+      hl_group = mark.hl,
     })
   end
 
@@ -275,7 +339,10 @@ function M.show()
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "cheatsheet"
-  vim.wo[win].cursorline = true
+  -- 跟 picker 一套色：灰边框 + 蓝标题 + 实底卡片。
+  -- ⚠ winhl 不是 nvim_open_win 的合法字段（会报 invalid key: winhl），必须开完窗再设。
+  vim.wo[win].winhl = "NormalFloat:CheatSheetBg,FloatBorder:CheatSheetBorder,FloatTitle:CheatSheetWinTitle"
+  vim.wo[win].cursorline = false -- 纯展示面板：开着只会在顶行糊一条底色带
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
   vim.wo[win].signcolumn = "no"

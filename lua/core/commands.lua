@@ -65,55 +65,183 @@ end
 
 -- 项目列表 --------
 
-local function read_project_history_sync()
-  local ok_history, history = pcall(require, "project_nvim.utils.history")
+-- ⚠ 项目历史是**易失数据**，这里做成"只追加 + 并集 + 回填"三层保护。
+--
+-- 事故记录（2026-09-24 两次，第二次是当天夜里）：
+--   project.nvim 的 write_projects_to_history() 在 `recent_projects ~= nil` 时用
+--   **mode="w" 截断重写**整个历史文件；而它读文件是**异步**的。只要某个实例在
+--   "文件刚被别的实例截断成空、内容还没写回"的窗口里读到空文件，它的 recent_projects
+--   就变成**空表**（非 nil）⇒ 退出时按空表截断写回 ⇒ 整份历史被清空。
+--   并发跑多个 nvim（我当晚的探针 + 后台任务）就会踩到；单实例日常使用风险低但存在。
+--
+-- 现在：① 自己维护一份只追加的副本（stdpath("state")/project-history.list）；
+--       ② 列表 = 插件文件 ∪ 副本 ∪ 会话项目（并集，永不缩小）；
+--       ③ 每次打开列表时把副本里"插件文件缺的条目"**追加**回插件文件（append 不会截断，
+--          而且插件的 fs_event 监视器会因此重读文件，把它自己的内存一起修好）。
+local function own_history_file()
+  return vim.fn.stdpath("state") .. "/project-history.list"
+end
+
+local function normalize_dir(dir)
+  return (dir:gsub("\\", "/"):gsub("//", "/"))
+end
+
+local function read_lines(path)
+  local ok, lines = pcall(vim.fn.readfile, path)
+  return ok and lines or {}
+end
+
+local function read_own_history()
+  local dirs, seen = {}, {}
+  for _, line in ipairs(read_lines(own_history_file())) do
+    local dir = normalize_dir(vim.trim(line))
+    if dir ~= "" and not seen[dir] and vim.uv.fs_stat(dir) then
+      seen[dir] = true
+      dirs[#dirs + 1] = dir
+    end
+  end
+  return dirs, seen
+end
+
+local function append_history_file(path, dirs, existing)
+  existing = existing or {}
+  local fresh = {}
+  for _, dir in ipairs(dirs) do
+    local normalized = normalize_dir(dir)
+    if normalized ~= "" and not existing[normalized] and vim.uv.fs_stat(normalized) then
+      existing[normalized] = true
+      fresh[#fresh + 1] = normalized
+    end
+  end
+  if #fresh == 0 then
+    return 0
+  end
+
+  local f = io.open(path, "a")
+  if not f then
+    return 0
+  end
+  f:write(table.concat(fresh, "\n") .. "\n")
+  f:close()
+  return #fresh
+end
+
+local function read_project_history()
   local ok_path, path = pcall(require, "project_nvim.utils.path")
-  if not (ok_history and ok_path) or history.recent_projects ~= nil then
-    return
+  local dirs, seen = {}, {}
+
+  -- ① 我们自己的副本先来（它排在最"老"的一端；插件文件被清空后列表也不会变短）
+  local own, own_seen = read_own_history()
+  for _, dir in ipairs(own) do
+    seen[dir] = true
+    dirs[#dirs + 1] = dir
   end
 
-  if vim.fn.filereadable(path.historyfile) ~= 1 then
-    history.recent_projects = {}
-    return
-  end
-
-  local projects = {}
-  local seen = {}
-  for _, dir in ipairs(vim.fn.readfile(path.historyfile)) do
-    local normalized = dir:gsub("\\", "/"):gsub("//", "/")
-    local stat = normalized ~= "" and vim.uv.fs_stat(normalized) or nil
-    if stat and stat.type == "directory" and not path.is_excluded(normalized) and not seen[normalized] then
-      seen[normalized] = true
-      table.insert(projects, normalized)
+  -- ② 插件自己的历史文件（顺序=旧→新；调用方翻转后就是"最近在前"）
+  if ok_path then
+    for _, line in ipairs(read_lines(path.historyfile)) do
+      local dir = normalize_dir(vim.trim(line))
+      if dir ~= "" and not seen[dir] and vim.uv.fs_stat(dir) then
+        seen[dir] = true
+        dirs[#dirs + 1] = dir
+      end
     end
   end
 
-  history.recent_projects = projects
+  -- ③ 本会话访问过的项目（插件内存列表，只读）
+  local ok_history, history = pcall(require, "project_nvim.utils.history")
+  if ok_history and type(history.session_projects) == "table" then
+    for _, dir in ipairs(history.session_projects) do
+      local normalized = normalize_dir(dir)
+      if not seen[normalized] then
+        seen[normalized] = true
+        dirs[#dirs + 1] = normalized
+      end
+    end
+  end
+
+  -- 回填：副本 ← 本轮看到的全部；插件文件 ← 副本里它缺的（append，不截断）
+  append_history_file(own_history_file(), dirs, own_seen)
+  if ok_path then
+    local in_plugin = {}
+    for _, line in ipairs(read_lines(path.historyfile)) do
+      in_plugin[normalize_dir(vim.trim(line))] = true
+    end
+    append_history_file(path.historyfile, dirs, in_plugin)
+  end
+
+  return dirs
 end
+
+-- 项目标志文件：只有"看起来是项目根"的目录才记进历史，
+-- 否则 `:cd /tmp`、`:cd ~` 之类也会被塞进 :Projects（2026-09-25 审查指出）。
+local PROJECT_MARKERS = {
+  ".git",
+  ".hg",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "package.json",
+  "go.mod",
+  "Cargo.toml",
+  "pyproject.toml",
+  "CMakeLists.txt",
+}
+
+local function looks_like_project(dir)
+  for _, marker in ipairs(PROJECT_MARKERS) do
+    if vim.uv.fs_stat(dir .. "/" .. marker) then
+      return true
+    end
+  end
+  return false
+end
+
+-- 换到项目根就记一笔（下一次 :Projects 即便插件历史又丢了也还在）
+vim.api.nvim_create_autocmd("DirChanged", {
+  group = vim.api.nvim_create_augroup("ProjectHistoryMirror", { clear = true }),
+  desc = "把当前项目根追加到自有项目历史副本",
+  callback = function()
+    local cwd = vim.fn.getcwd()
+    if not looks_like_project(cwd) then
+      return
+    end
+    local _, seen = read_own_history()
+    append_history_file(own_history_file(), { cwd }, seen)
+  end,
+})
 
 vim.api.nvim_create_user_command("Projects", function()
   local ok_lazy, lazy = pcall(require, "lazy")
   if ok_lazy then
-    pcall(lazy.load, { plugins = { "project.nvim", "telescope.nvim", "neo-tree.nvim" } })
+    pcall(lazy.load, { plugins = { "project.nvim", "neo-tree.nvim", "snacks.nvim" } })
   end
 
-  read_project_history_sync()
-
-  local ok_history, history = pcall(require, "project_nvim.utils.history")
-  local ok_telescope, pickers = pcall(require, "telescope.pickers")
-  if not (ok_history and ok_telescope) then
-    vim.notify("项目列表加载失败", vim.log.levels.ERROR)
+  local ok_snacks, Snacks = pcall(require, "snacks")
+  if not ok_snacks then
+    vim.notify("项目列表加载失败（snacks 不可用）", vim.log.levels.ERROR)
     return
   end
 
-  local finders = require("telescope.finders")
-  local conf = require("telescope.config").values
-  local actions = require("telescope.actions")
-  local action_state = require("telescope.actions.state")
-
-  local projects = vim.deepcopy(history.get_recent_projects())
+  local projects = read_project_history()
   for i = 1, math.floor(#projects / 2) do
     projects[i], projects[#projects - i + 1] = projects[#projects - i + 1], projects[i]
+  end
+
+  -- 当前所在项目排到最前（其余保持"最近打开在前"）。cwd 可能是项目子目录 ⇒ 取最长匹配。
+  do
+    local cwd = vim.fn.getcwd()
+    local best, best_len = nil, 0
+    for i, dir in ipairs(projects) do
+      if (cwd == dir or cwd:sub(1, #dir + 1) == dir .. "/") and #dir > best_len then
+        best, best_len = i, #dir
+      end
+    end
+    if best and best > 1 then
+      local dir = table.remove(projects, best)
+      table.insert(projects, 1, dir)
+    end
   end
 
   if #projects == 0 then
@@ -121,14 +249,12 @@ vim.api.nvim_create_user_command("Projects", function()
     return
   end
 
-  local function switch_project(prompt_bufnr)
-    local entry = action_state.get_selected_entry()
-    actions.close(prompt_bufnr)
-    if not entry or not entry.value then
+  local function switch_project(dir)
+    if type(dir) ~= "string" or dir == "" then
+      vim.notify("项目切换失败：目录参数异常（" .. vim.inspect(dir) .. "）", vim.log.levels.ERROR)
       return
     end
 
-    local dir = entry.value
     local ok_project, project = pcall(require, "project_nvim.project")
     if ok_project then
       project.set_pwd(dir, "projects")
@@ -136,37 +262,139 @@ vim.api.nvim_create_user_command("Projects", function()
       vim.api.nvim_set_current_dir(dir)
     end
 
+    -- neo-tree 的联动由 lua/plugins/project.lua 里对 set_pwd 的补丁负责（走 Lua API
+    -- manager.navigate，路径里有空格也稳）。
+    -- ⚠ 这里原来还会发 `Neotree filesystem reveal dir=<path>`，但 neo-tree 的命令解析器
+    --   是**按空格切分**参数（neo-tree/command/parser.lua 的 utils.split(args, " ")），
+    --   所以路径含空格的项目（如 "Feed stream"）必然解析失败报错 ⇒ 已删除该命令。
+    if not package.loaded["neo-tree.sources.manager"] then
+      return
+    end
     vim.schedule(function()
-      local ok_neotree, err = pcall(vim.cmd, "Neotree filesystem reveal dir=" .. vim.fn.fnameescape(dir))
-      if not ok_neotree then
-        vim.notify("项目已切换，但文件树刷新失败: " .. tostring(err), vim.log.levels.WARN)
+      local ok_manager, manager = pcall(require, "neo-tree.sources.manager")
+      if not ok_manager then
+        return
       end
+      manager._for_each_state("filesystem", function(state)
+        if state.path and state.path ~= dir then
+          pcall(manager.navigate, state, dir)
+        end
+      end)
     end)
   end
 
-  pickers
-    .new({}, {
-      prompt_title = "Projects",
-      finder = finders.new_table({
-        results = projects,
-        entry_maker = function(dir)
-          return {
-            value = dir,
-            display = vim.fn.fnamemodify(dir, ":t") .. "  " .. dir,
-            ordinal = vim.fn.fnamemodify(dir, ":t") .. " " .. dir,
-          }
-        end,
-      }),
-      previewer = false,
-      sorter = conf.generic_sorter({}),
-      attach_mappings = function(prompt_bufnr)
-        actions.select_default:replace(function()
-          switch_project(prompt_bufnr)
-        end)
-        return true
-      end,
-    })
-    :find()
+  -- 原来是自定义 Telescope picker；换成 snacks（fzf 风格紧凑列表），行为保持一致：
+  -- 选中后切 cwd + 让 neo-tree 跟随（靠 project.lua 里的 set_pwd 补丁）
+  -- ⚠ 不要用 `dir` 作为自定义字段名：snacks 会把 item 当文件项补全自己的元数据，
+  --   其中 `dir` 是布尔标志（"是目录"），会**覆盖**我们的字符串（实测拿到 dir=true）。
+  --   换一个不会撞名的 key（project_dir），并保留 text→dir 的反查兜底。
+  -- 行样式：图标 + 项目名（亮）+ 父目录（暗），名字列对齐；home 缩成 ~。
+  -- text 仍是「名字 + 完整路径」——过滤靠它（能按路径片段搜），显示靠下面的 format。
+  local home = vim.fn.expand("~")
+  local function pretty_path(path)
+    if path == home then
+      return "~"
+    end
+    return (path:gsub("^" .. vim.pesc(home) .. "/", "~/"))
+  end
+
+  local items = {}
+  local by_text = {}
+  local name_width = 0
+  for _, dir in ipairs(projects) do
+    local name = vim.fn.fnamemodify(dir, ":t")
+    local parent = pretty_path(vim.fn.fnamemodify(dir, ":h"))
+    name_width = math.max(name_width, vim.fn.strdisplaywidth(name))
+    local text = name .. "  " .. dir
+    items[#items + 1] = {
+      text = text,
+      project_dir = dir,
+      project_name = name,
+      project_parent = parent,
+    }
+    by_text[text] = dir
+  end
+  name_width = math.min(name_width, 24) -- 名字列上限：够放下常见长名（列对齐），又不至于把路径挤没
+
+  -- 标出「你当前就在这个项目里」的那一条（cwd 可能是项目子目录 ⇒ 取最长匹配）
+  do
+    local cwd = vim.fn.getcwd()
+    local current
+    for _, item in ipairs(items) do
+      local dir = item.project_dir
+      if (cwd == dir or cwd:sub(1, #dir + 1) == dir .. "/") and (not current or #dir > #current) then
+        current = dir
+      end
+    end
+    for _, item in ipairs(items) do
+      item.project_current = item.project_dir == current
+    end
+  end
+
+  -- 宽度贴合内容（原先固定 0.5 屏宽 → 宽终端上一半是空白）：按最长一行算，
+  -- 夹在 [40, min(96, columns-8)]。内联 layout 能盖过预设（实测 53 → 61）。
+  local window_width = (function()
+    local widest = 0
+    for _, item in ipairs(items) do
+      local name = vim.fn.strdisplaywidth(item.project_name or "")
+      local parent = vim.fn.strdisplaywidth(item.project_parent or "")
+      local badge = item.project_current and 6 or 0 -- "  当前" = 2 空格 + 4 列
+      widest = math.max(widest, 2 + math.max(name, name_width) + 2 + parent + badge)
+    end
+    return math.max(40, math.min(96, widest + 4, vim.o.columns - 8))
+  end)()
+
+  Snacks.picker.pick({
+    -- ⚠ 不要叫 "projects"：snacks 有**同名的内置源**（sources.lua:888，finder=recent_projects），
+    --   传它会走内置 finder、把我们自己的 items 顶掉（实测 confirm 收到的是别的项目条目）
+    source = "project-history",
+    title = " 项目 ",
+    items = items,
+    -- 富文本行：图标（主题蓝）+ 名字（亮色，按最长名字对齐）+ 父目录（灰）。
+    -- 匹配高亮由 snacks 自己按渲染后的行重算（list.lua 的 M:format），不受影响。
+    format = function(item)
+      local name = item.project_name or vim.fn.fnamemodify(item.project_dir or "", ":t")
+      local icon, icon_hl = Snacks.util.icon(name, "directory", { fallback = { dir = "󰉋 " } })
+      local pad = string.rep(" ", math.max(0, name_width - vim.fn.strdisplaywidth(name)))
+      local line = {
+        { icon, icon_hl },
+        { name, item.project_current and "SnacksPickerCurrentProject" or "SnacksPickerFile" },
+        { pad .. "  ", "SnacksPickerDelim" },
+        { item.project_parent or "", "SnacksPickerDir" },
+      }
+      if item.project_current then
+        line[#line + 1] = { "  当前", "SnacksPickerCurrentBadge" }
+      end
+      return line
+    end,
+    layout = {
+      preset = "picker_compact",
+      backdrop = 60,
+      layout = {
+        width = window_width,
+        -- 注：snacks 的子窗默认与父框**同宽**（实测 list w == box w，内置布局也一样），
+        -- 所以选中行底色会正好铺满一行（含边框那一格）。曾试过把 list 收窄 2 列，
+        -- 结果右侧多出一条 2 列宽、颜色不一致的竖条 —— 更难看，已回退。
+      },
+    },
+    -- ⚠ snacks 的 confirm 第二个参数在不同形态下是「选中项数组」（前面就是踩了这个：
+    --   按单项取 .dir 拿到 nil，最终 nvim_set_current_dir(nil) 报 Invalid 'dir'）
+    confirm = function(picker, item)
+      picker:close()
+      local sel = item
+      if type(sel) == "table" and type(sel[1]) == "table" then
+        sel = sel[1]
+      end
+      local dir = type(sel) == "table" and sel.project_dir or nil
+      if type(dir) ~= "string" and type(sel) == "table" then
+        dir = sel.file or sel._path -- 兜底：snacks 文件项形态
+      end
+      if type(dir) ~= "string" and type(sel) == "table" and type(sel.text) == "string" then
+        dir = by_text[sel.text] -- 兜底：按显示文本反查
+      end
+      switch_project(dir)
+    end,
+  })
 end, { force = true, desc = "打开项目列表" })
 
 -- Java 项目初始化 / 单文件运行 --------

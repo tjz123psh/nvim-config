@@ -7,23 +7,44 @@ return {
   "folke/which-key.nvim",
   event = "VeryLazy",
   opts = {
+    -- 只保留 leader / localleader 触发：默认的 <auto> 会把 g、z、[、]、<C-w> 也变成自动弹窗
+    -- （实测 z 弹窗 33 项、g 弹窗 42 项），gg/gd/zz 之前先闪一屏很吵
     triggers = {
-      { "<auto>", mode = "nxso" }, -- leader 自动弹出
-      { "\\", mode = "n" }, -- localleader 也弹出
+      -- 2026-09-25 专项复核（最小 init / 真配置+运行时注入 / 真配置副本+真 pty 三层实验）：
+      -- 推翻了此前"上游不支持可视模式触发器"的结论（审查报告 §24 第 2 条已订正）。
+      -- 真正原因是本表原先只写了 mode = "n"，x 模式没有任何触发器键映射；v/x 等价
+      -- （which-key 内部把 v/V/C-V 统一归一成 "x"）。官方写法就是 { "<leader>", mode = { "n", "v" } }
+      -- （doc/which-key.nvim.txt:357-362）。
+      -- 注意：which-key 只在**当前 buffer 的 x 模式树里存在 <leader> 前缀映射**时才挂触发器，
+      -- 所以实际只有 Java 缓冲区会弹（<leader>Rv/RV/Rc/Rm 是 java.lua 的 buffer-local x 键）。
+      -- 别改成 { "<auto>", mode = "x" }：实测会给 g/z/[/]/<C-w>/<Space> 全建触发器，
+      -- 把当初收窄触发器想避免的噪音又搬回来。
+      { "<leader>", mode = { "n", "v" } },
+      { "\\", mode = { "n", "v" } }, -- localleader 也弹出
     },
+    delay = 300,
     spec = {
       -- leader 前缀分组
       { "<leader>b", group = "缓冲区操作" },
       { "<leader>c", group = "代码操作" },
       { "<leader>d", group = "调试（DAP）" },
-      { "<leader>f", group = "搜索（Telescope）" },
+      { "<leader>f", group = "搜索" },
       { "<leader>h", group = "快捷键速查" },
       { "<leader>r", group = "重命名/运行" },
-      { "<leader>s", group = "窗口分割 / Spring" },
+      { "<leader>s", group = "Spring Boot" },
       { "<leader>t", group = "终端" },
+      { "<leader>v", group = "窗口：切分" },
       { "<leader>w", group = "保存/退出" },
+      { "<leader>G", group = "代码生成（Java）" },
+      { "<leader>J", group = "Java 测试 / 调试" },
+      { "<leader>m", group = "Maven / Gradle 构建" },
+      { "<leader>o", group = "整理 import" },
+      { "<leader>R", group = "重构：提取" },
 
       { "g", group = "g 前缀 —— 跳转、转换、文件" },
+      -- Neovim 内置注释（descriptions 是英文的 "Toggle comment*"，这里覆盖成中文）
+      { "gc", desc = "注释/取消注释（可视、可配 motion）" },
+      { "gcc", desc = "注释/取消注释当前行" },
       { "ge", desc = "上一个单词末尾" },
       { "gE", desc = "上一个 WORD 末尾" },
       { "gf", desc = "打开光标下文件" },
@@ -36,7 +57,9 @@ return {
       { "gT", desc = "上一个标签页" },
       { "gv", desc = "重新选择上次可视区域" },
       { "gu", desc = "小写转换（配合 motion）" },
-      { "gU", desc = "大写转换 / java 里=父类" },
+      { "gU", desc = "大写转换（配合 motion）" },
+      { "gA", desc = "跳转到父类/接口实现（Java）" },
+      { "gr", group = "LSP：引用 / 重命名 / 代码操作（内置）" },
       { "g~", desc = "切换大小写（配合 motion）" },
       { "gq", desc = "格式化选中文本" },
       { "gw", desc = "格式化（光标不动）" },
@@ -59,14 +82,11 @@ return {
       { "g<", desc = "查看上次命令输出" },
       { "g8", desc = "显示 UTF-8 编码字节" },
       { "gd", desc = "跳转到定义（LSP）" },
-      { "gr", desc = "查找所有引用（LSP）" },
       { "gi", desc = "跳转到实现（LSP）" },
       { "gR", desc = "跳转到类型定义（LSP）" },
+      { "gO", desc = "本文档符号列表（LSP）" },
 
-      { "t", group = "t 前缀 —— 终端" },
-      { "tt", desc = "切换浮动终端" },
-      { "th", desc = "水平分割终端" },
-      { "tv", desc = "垂直分割终端" },
+      -- （原顶层 t / tt / th / tv 条目已删：真实键位是 <leader>tt/th/tv，顶层 t 不触发弹窗）
 
       { "z", group = "z 前缀 —— 折叠/滚动" },
       { "za", desc = "切换折叠" },
@@ -87,6 +107,10 @@ return {
       { "zt", desc = "滚动使光标在顶部" },
       { "zb", desc = "滚动使光标在底部" },
       { "z.", desc = "居中光标（重绘）" },
+      { "zi", desc = "切换折叠开关" },
+      { "zv", desc = "显示光标所在的折叠" },
+      { "zx", desc = "重新计算折叠（撤销手动折叠）" },
+      { "zE", desc = "删除文件内所有折叠" },
       { "z<CR>", desc = "滚屏使光标在顶部（重绘）" },
       { "z-", desc = "滚屏使光标在底部（重绘）" },
       { "z=", desc = "拼写建议" },

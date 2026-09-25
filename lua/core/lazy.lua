@@ -8,8 +8,7 @@
 -- 只检查目录存在会跳过重新克隆，导致 require("lazy") 失败
 -- 注意：新版 lazy.nvim 入口是 lua/lazy/init.lua，老版本是 lua/lazy.lua，都检查
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-local entry_ok = vim.uv.fs_stat(lazypath .. "/lua/lazy/init.lua")
-  or vim.uv.fs_stat(lazypath .. "/lua/lazy.lua")
+local entry_ok = vim.uv.fs_stat(lazypath .. "/lua/lazy/init.lua") or vim.uv.fs_stat(lazypath .. "/lua/lazy.lua")
 if not entry_ok then
   if vim.uv.fs_stat(lazypath) then
     vim.fn.system({ "rm", "-rf", lazypath })
@@ -32,7 +31,11 @@ require("lazy").setup({
   },
   rocks = { enabled = false }, -- 不用 rocks 生态插件，清 checkhealth 警告
   defaults = {
-    lazy = false, -- 默认不延迟加载（除非插件自己指定）
+    -- 这两项与 lazy.nvim 自带默认值相同，写出来只为显式；
+    -- 真正决定「是否延迟加载」的是各 spec 的 event/ft/keys/cmd ——
+    -- lazy 内部判定是 `dep or defaults.lazy or event or keys or ft or cmd`，
+    -- 所以 defaults.lazy = false 不会让触发器失效（这一点曾被我误判过）
+    lazy = false,
     version = false, -- 不锁定版本，随时更新
   },
   install = {

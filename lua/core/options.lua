@@ -66,9 +66,41 @@ vim.lsp.log.set_level(vim.log.levels.ERROR)
 
 -- 诊断提示样式
 vim.diagnostic.config({
-  virtual_text = { spacing = 2, prefix = "●", source = "if_many" }, -- 行尾显示错误信息文字
+  -- 同一行有多条诊断时，行尾 virt_text 只显示「最后一条」（runtime diagnostic.lua:2277），
+  -- 不开 severity_sort 时那一条是插入序最后一条（可能只是 WARN），符号列也会画 W 而不是 E
+  severity_sort = true,
+  -- 光标所在行的诊断改成"整行显示在下一行"（virtual_lines），此时该行行尾的 ● 文字是重复的，
+  -- 所以 virtual_text 关掉 current_line（其它行照旧）——这是 Neovim 文档推荐的搭配。
+  -- 长消息（jdtls 的多行错误）在行尾挤不下，展开成整行可读性好很多。
+  virtual_text = {
+    spacing = 2,
+    prefix = "●",
+    source = "if_many",
+    current_line = false, -- 当前行改由下面的 virtual_lines 整行显示，避免重复
+    severity = { min = vim.diagnostic.severity.WARN }, -- INFO/HINT 只留符号列与下划线，不再占行尾
+  },
+  virtual_lines = {
+    current_line = true, -- 光标所在行：把诊断整行展开在下一行（长消息不再被行尾截断）
+    severity = { min = vim.diagnostic.severity.WARN },
+    -- 默认格式是 "[code] message"，jdtls 的 code 是内部诊断号（如 [603979884]），去掉
+    format = function(d)
+      return d.message
+    end,
+  },
   underline = true, -- 错误范围画波浪线
   signs = true, -- 左侧符号列图标
-  float = { border = "rounded", source = "if_many" },
+  float = {
+    border = "rounded",
+    source = "if_many",
+    -- 默认会在消息末尾追加 " [code]"。jdtls 的 code 是内部诊断号（如 [603979884]），
+    -- 纯噪音；但 eslint 规则名、rustc 的 E0308 这类文字码有用，所以只丢掉纯数字码。
+    suffix = function(d)
+      local code = d.code and tostring(d.code) or ""
+      if code ~= "" and not code:match("^%d+$") then
+        return (" [%s]"):format(code)
+      end
+      return ""
+    end,
+  },
   update_in_insert = false,
 })

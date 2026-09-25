@@ -14,7 +14,7 @@ map("n", "<Space>", "<Nop>", { desc = "Leader 键" })
 -- 插件自带映射：
 --   <leader>e          neo-tree 文件树
 --   <leader>tt/th/tv   toggleterm 终端
---   <leader>fp         Telescope 项目列表
+--   <leader>fp         :Projects 项目列表（snacks picker）
 
 -- jk 退出终端模式回到普通模式（:term 打开的终端）
 -- 注意：终端内 j 后跟 k 会触发退出，注意误触
@@ -25,23 +25,49 @@ map("n", "<C-h>", "<C-w>h", { desc = "切换到左边窗口" })
 map("n", "<C-l>", "<C-w>l", { desc = "切换到右边窗口" })
 map("n", "<C-j>", "<C-w>j", { desc = "切换到下边窗口" })
 map("n", "<C-k>", "<C-w>k", { desc = "切换到上边窗口" })
-map("n", "<leader>sh", "<cmd>split<cr>", { desc = "水平切分窗口" })
-map("n", "<leader>sv", "<cmd>vsplit<cr>", { desc = "垂直切分窗口" })
+-- 2026-09-25（§23.3 #5 方案 A）：窗口切分从 <leader>s 挪到 <leader>v，s 变纯 Spring
+map("n", "<leader>vh", "<cmd>split<cr>", { desc = "水平切分窗口" })
+map("n", "<leader>vv", "<cmd>vsplit<cr>", { desc = "垂直切分窗口" })
 
 -- 文件操作快捷键
 map("n", "<C-s>", "<cmd>write<cr>", { desc = "保存当前文件" })
 map("i", "<C-s>", "<C-o>:write<cr>", { desc = "保存当前文件（插入模式）" })
 map("i", "<C-CR>", "<Esc>o", { desc = "在下方新建空行，继续编辑" })
+-- 搜索：全部走 snacks picker（fzf 风格紧凑列表，见 plugins/snacks.lua 的 picker_compact 预设）
+map("n", "<leader>ff", function()
+  require("snacks").picker.files()
+end, { desc = "搜索文件名" })
+map("n", "<leader>fg", function()
+  require("snacks").picker.grep()
+end, { desc = "搜索文件内容" })
+map("n", "<leader>fb", function()
+  require("snacks").picker.buffers()
+end, { desc = "切换已打开的缓冲区" })
+map("n", "<leader>fh", function()
+  require("snacks").picker.help()
+end, { desc = "搜索帮助文档" })
 map("n", "<leader>fc", function()
-  require("telescope.builtin").find_files({ cwd = vim.fn.stdpath("config") })
+  require("snacks").picker.files({ cwd = vim.fn.stdpath("config") })
 end, { desc = "搜索 Neovim 配置文件" })
+map("n", "<leader>fp", "<cmd>Projects<cr>", { desc = "搜索项目" })
 map("n", "<leader>q", "<cmd>q<cr>", { desc = "关闭当前窗口" })
+
+-- 报错逃生口：noice 接管 vim.notify 后，LSP/插件报错只闪一次通知，`:messages` 里查不到
+map("n", "<leader>he", "<cmd>Noice errors<cr>", { desc = "最近的报错（noice 历史）" })
+map("n", "<leader>hh", "<cmd>Noice history<cr>", { desc = "全部消息历史（noice）" })
 map("n", "<leader>ba", "<cmd>BufferLineCloseOthers<cr>", { desc = "关闭其他缓冲区" })
 map("n", "<leader>bd", "<cmd>bdelete<cr>", { desc = "关闭当前缓冲区（文件）" })
 map("n", "<leader>wq", "<cmd>wq<cr>", { desc = "保存并关闭" })
 
 -- 普通模式下移动当前行：J 下移，K 上移；支持数字前缀，例如 3J
 local function move_current_line(direction)
+  -- ⚠ 必须守卫：终端缓冲区、picker 列表窗、alpha、:help、quickfix、neo-tree、速查面板
+  -- 全是 modifiable=false，直接 set_lines 会抛 E5108（2026-09-25 审查实测）。
+  -- 可视模式那一份（move_visual_lines）本来就有这个守卫，这里之前漏了。
+  if not vim.bo.modifiable then
+    return
+  end
+
   local cursor = vim.api.nvim_win_get_cursor(0)
   local row = cursor[1]
   local col = cursor[2]
