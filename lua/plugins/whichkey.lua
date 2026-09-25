@@ -21,6 +21,13 @@ return {
       -- 把当初收窄触发器想避免的噪音又搬回来。
       { "<leader>", mode = { "n", "v" } },
       { "\\", mode = { "n", "v" } }, -- localleader 也弹出
+      -- 2026-09-25 用户反馈：「按 g 想看一下定义和引用，按下去毫无反应」。
+      -- 查证：g 的 spec 条目一直都有（gd/gh/gi/gR/gO/gr*…），但触发器只留了 <leader>，
+      -- 所以按 g 什么都不会弹（gd 本身是好的 —— 真 pty 实测按 gd 能跳到定义）。
+      -- 现在**显式**加 g（不是 { "<auto>" }：只加 g，z/[/]/<C-w> 仍然不弹，
+      -- 不会把当初收窄触发器想避开的噪音全搬回来）。delay=300ms，
+      -- 快速连打 gg/ge 不会闪，停下来才弹。
+      { "g", mode = { "n", "v" } },
     },
     delay = 300,
     spec = {
@@ -60,6 +67,13 @@ return {
       { "gU", desc = "大写转换（配合 motion）" },
       { "gA", desc = "跳转到父类/接口实现（Java）" },
       { "gr", group = "LSP：引用 / 重命名 / 代码操作（内置）" },
+      -- gr* 是 Neovim 0.12 内置的 LSP 键（本配置故意不覆盖 gr 前缀），
+      -- 内置 desc 是英文（vim.lsp.buf.references() 之类），这里覆盖成中文，弹窗才读得懂。
+      { "grr", desc = "查找引用（LSP）" },
+      { "grn", desc = "重命名符号（LSP）" },
+      { "gra", desc = "代码操作（LSP）" },
+      { "gri", desc = "跳转到实现（LSP）" },
+      { "grt", desc = "跳转到类型定义（LSP）" },
       { "g~", desc = "切换大小写（配合 motion）" },
       { "gq", desc = "格式化选中文本" },
       { "gw", desc = "格式化（光标不动）" },
