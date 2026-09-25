@@ -1422,7 +1422,7 @@ hover            → Empty hover response
 | `nvim插件介绍.md` | which-key「配置」行补"普通模式与可视模式都生效"（对应 §26.1 的修复） |
 | `nvim自定义命令.md` | `:SpringBootCreate` 注册点措辞精确化（`commands.lua` 启动期调用 → 实际注册在 `spring_wizard.lua:1176`） |
 
-未动 `lua/core/cheatsheet.lua`（你的 WIP）：审计发现的 **11 键 + 10 命令** 漂移仍待补。
+未动 `lua/core/cheatsheet.lua`（你的 WIP）：审计发现的 **11 键 + 10 命令** 漂移仍待补。 **（2026-09-25 订正：这批漂移已在 §26.12 全部补完 —— cheatsheet 11 键 + 10 命令都已落地并三向一致，见 §26.12/§29.2.2 ④）**
 
 ### 26.10 两个补丁（✅ 2026-09-25 已全部应用，见 §26.11）
 
