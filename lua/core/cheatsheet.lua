@@ -165,7 +165,6 @@ local sections = {
       },
       { "<leader>sr", "Spring Boot: 运行项目" },
       { "<leader>sp", "Spring Boot 向导（11 步可搜索选择）" },
-      { "<leader>sP", "原版向导（不推荐：Boot 4 版本号有 bug）" },
       { "<leader>Gc / Gi / Ge / Gr", "生成 Class / Interface / Enum / Record" },
     },
   },

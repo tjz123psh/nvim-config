@@ -31,16 +31,18 @@ return {
         end,
         desc = "Spring Boot 项目向导（可搜索选择）",
       },
-      { "<leader>sP", "<cmd>SpringBootNewProject<cr>", desc = "原版向导（不推荐：Boot 4 版本号有 bug）" },
+      -- <leader>sP（原版向导 :SpringBootNewProject）已于 2026-09-25 按用户要求删除：
+      -- 它生成的 Boot 4 版本号有 bug，自研向导（core/spring_wizard.lua）已完全覆盖该用途。
+      -- 上游命令本身在 Java 缓冲区里仍可用（插件 ft=java 加载后自行注册），只是不再挂键位。
     },
   },
 
   {
     "elmcgill/springboot-nvim",
     ft = { "java" },
-    -- :SpringBootNewProject 由本插件注册，而 <leader>sP 是全局键（任何缓冲区可按）：
-    -- 不声明 cmd 的话，在非 java 缓冲区按 <leader>sP 会 E492（命令尚未注册）。
-    cmd = { "SpringBootNewProject" },
+    -- 只保留它真正还在用的能力：<leader>Gc/Gi/Ge/Gr 类生成 + 保存时的增量编译。
+    -- <leader>sP 与它的 cmd 桩（:SpringBootNewProject）已随"原版向导不推荐"一起移除
+    -- （2026-09-25）：该向导生成的 Boot 4 版本号有 bug，自研向导已覆盖。
     dependencies = {
       "neovim/nvim-lspconfig",
       "mfussenegger/nvim-jdtls",

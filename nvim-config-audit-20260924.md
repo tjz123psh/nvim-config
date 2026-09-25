@@ -1471,6 +1471,20 @@ hover            → Empty hover response
 
 **保留**：`/tmp/termvenv`（pyte 抓屏工具链，丢了按 §25 重建）；更早轮次遗留的 jdtls 工作区（`javaproj`/`jproj`/`w1jb`/`w2verify`/`tmp-`/`some-very-long-project-name`/`docs`/`nvim`/`feed-java`，约 350M）——不是本次会话产生，未擅自删。
 
+### 26.14 删除 `<leader>sP`（原版 Spring 向导）—— 用户截图指出（2026-09-25）
+
+用户看到 `<leader>s` 弹窗里的第二项 `P → 原版向导（不推荐：Boot 4 版本号有 bug）` 后要求删除（"应该也没有用了"）。
+
+| 项 | 处理 |
+|---|---|
+| `lua/plugins/lang/springboot.lua` | 删除 `{ "<leader>sP", "<cmd>SpringBootNewProject<cr>" }` 映射；同时移除 `springboot-nvim` 的 `cmd = { "SpringBootNewProject" }` 桩（该桩原本只为"全局键在任何缓冲区按不报 E492"而存在）。**插件本体保留**——`<leader>Gc/Gi/Ge/Gr` 类生成与保存时增量编译还在用它 |
+| `lua/core/cheatsheet.lua` | 去掉对应条目（Java/Spring 段） |
+| `~/md/nvim`（5 处） | `nvim快捷键.md`、`nvim命令.md`、`nvim插件介绍.md`（加载行 + 快捷键行 + 备注行）、`构建SpringBoot项目实操指南.md`、`nvim配置架构.md` 全部改为"已删除"口径 |
+
+**真机验证**：`<Space>sP` 无映射；`:SpringBootNewProject` 启动期不存在（`exists()=0`）；真 pty 按 `<leader>s` 的弹窗现在只有 `p ➜ Spring Boot 项目向导（可搜索选择）`；`<Space>Gc`/`<Space>Gi` 仍在。`stylua --check .` 41/41、`nvim --headless '+qa'` exit 0。
+
+**保留说明**：Java 缓冲区里插件按 `ft=java` 加载后仍会注册 `:SpringBootNewProject`，所以"应急用一次"仍可行，只是不再挂键位、也不再启动期注册。
+
 
 
 
