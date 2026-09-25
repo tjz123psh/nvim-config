@@ -29,10 +29,9 @@ vim.o.guifont = font
 -- 刷新率（Hz）
 vim.g.neovide_refresh_rate = 60
 
--- 窗口圆角（2026-09-25 订正）：原来的 vim.g.neovide_corner_style **不是 Neovide 的选项**，
--- 是静默无效的死配置。0.16.0+ 的正确名字是 neovide_corner_preference（取值 default/round/round_small/do_not_round），
--- 但官方文档标注 "Currently Windows only" ⇒ Linux/Wayland 下窗口圆角由合成器决定，这行在这里本来也不生效。
--- 保留正确写法以便将来上游在 Linux 支持时自动生效（本机 Neovide 0.16.2，已于 2026-09-25 核对官方 configuration.html）。
+-- 窗口圆角：原写法 neovide_corner_style **不是 Neovide 的选项**（静默无效的死配置），
+-- 已订正为 neovide_corner_preference（0.16.0+）；官方标注 Windows only ⇒ Linux 下不生效，
+-- 保留正确写法以便上游将来支持（本机 Neovide 0.16.2，已核对官方 configuration.html）。
 vim.g.neovide_corner_preference = "round"
 
 -- 打字光标动画

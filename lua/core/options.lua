@@ -64,10 +64,8 @@ vim.o.modeline = false -- 关闭 modeline，防止恶意文件执行任意命令
 -- LSP 日志只记录 ERROR，防止日志长期膨胀
 vim.lsp.log.set_level(vim.log.levels.ERROR)
 
--- 但「只记 ERROR」不等于不会长大：历史上这份日志曾涨到 27MB（那时是 WARN/DEBUG 级别），
--- 即便现在只记 ERROR，长期累积也会到 MB 级（2026-09-25 审查时 845KB 且无轮转）。
--- 这里在启动时做一次**容量轮转**：超过 5MB 就改名成 lsp.log.1（覆盖上一份），永不删除内容。
--- 只做一次 fs_stat + rename，启动开销可忽略；想手动清就 <leader>ll（:LspLog）打开后自己处理。
+-- 但只记 ERROR 不等于不会长大（历史到过 27MB）⇒ 启动时做一次**容量轮转**：
+-- 超过 5MB 就改名成 lsp.log.1（覆盖上一份、不删内容）；只有一次 fs_stat + rename。
 do
   local log_path = vim.lsp.log.get_filename()
   local ok, stat = pcall(vim.uv.fs_stat, log_path)

@@ -1,12 +1,9 @@
 -- ============================================
--- snacks.nvim：只用它的 picker
+-- snacks.nvim：全机唯一的选择器 / 输入框提供者
 -- ============================================
--- 为什么引入：旧的 dressing+nui+telescope 组合做不出「图标列 / 分组 / 富文本着色 /
--- 主题化排版」，观感有天花板（这三个插件已在 2026-09-24 全部删除）。snacks.picker
--- 支持 text-node 数组（每段单独高亮组）、原生多选与预览，一次做到位。
---
--- ⚠ 必须显式关掉除 picker/input 以外的一切：snacks 的 notifier 会顶掉 noice、
---   dashboard 会顶掉 alpha、terminal 会顶掉 toggleterm。
+-- 为什么引入：旧的 dressing+nui+telescope 做不出「图标列 / 分组 / 富文本着色 / 主题化排版」
+-- （三者已于 2026-09-24 删除）。snacks.picker 支持 text-node 数组、原生多选与预览，一次做到位。
+-- ⚠ 除 picker/input 外全部显式关闭：notifier 会顶掉 noice、dashboard 顶掉 alpha、terminal 顶掉 toggleterm。
 -- ============================================
 return {
   {

@@ -1,22 +1,13 @@
 -- ============================================
 -- Java 语言支持：jdtls LSP + DAP 调试 + Maven / Spring Boot
 -- 前置: :Mason 安装 jdtls + java-debug-adapter + java-test + lemminx
--- 外部依赖: mvn（Maven）/ spring（Spring Boot CLI），都在 ~/.local/bin
+-- 外部依赖: mvn / spring（都在 ~/.local/bin）
 -- ============================================
---
--- 三件关键事（踩坑记录）:
---   1. java-debug-adapter / java-test 必须作为 bundles 由 jdtls 启动时加载，
---      不能独立 java -jar 运行；改了 bundles 要 :LspRestart 或重开才生效。
---   2. jdtls 需要独立 workspace 目录缓存每个项目的索引，
---      所以不能走 nvim-lspconfig 自动配置，必须 nvim-jdtls + 每项目 -data。
---   3. 本文件必须显式传 on_attach（见 core/lsp_on_attach.lua 注释），
---      否则 Java 缓冲区没有 gd/gr/gh 等导航键。
---
--- 调试流程:
---   F9 打断点 → F5 → jdtls 扫描带 main 的类 →（多个则 vim.ui.select 选）
---   → dap.run() → jdtls.startDebugSession 返回端口 → nvim-dap 连接
---   注意 F5 若提示"仍在导入项目"，是因为 Maven 依赖还没索引完，会自动重试。
--- ============================================
+-- 三条硬约束：
+--   1. java-debug-adapter / java-test 只能作为 jdtls bundle 加载（改完要 :LspRestart）。
+--   2. 每个项目独立 -data workspace ⇒ 不走 nvim-lspconfig，用 nvim-jdtls 手动 start_or_attach。
+--   3. 必须显式传 on_attach（见 core/lsp_on_attach.lua），否则 Java 缓冲区没有 gd/gh 等导航键。
+-- 调试流程：F9 断点 → F5（jdtls 扫 main 类，多个则选）→ dap.run()；导入未完成会自动重试。
 
 return {
   {
@@ -143,9 +134,7 @@ return {
       local jdtls = require("jdtls")
       local on_attach = require("core.lsp_on_attach")
 
-      ------------------------------------------------------------------
-      -- DAP 按需加载（2026-09-25，台账 §28.1）
-      ------------------------------------------------------------------
+      -- ── DAP 按需加载（2026-09-25，台账 §28.1） ──
       -- 原来这里是 `local jdtls_dap = require("jdtls.dap")` + `local dap = require("dap")`，
       -- 加上下面无条件的 jdtls.setup_dap()，会让**打开任意 .java 文件**就把
       -- nvim-dap + nvim-dap-ui + nvim-nio + nvim-dap-virtual-text 整条链同步拉起来
@@ -163,17 +152,10 @@ return {
         return dap
       end
 
-      ------------------------------------------------------------------
-      -- 字段/方法多选：Tab 勾选、CR 确认、Esc 取消
-      ------------------------------------------------------------------
-      -- 上游 jdtls.ui.pick_many 用 vim.fn.input() 收编号，有三个问题：
-      --   1. Esc 与空回车在 input() 层等价（都是 ""）→ 没有取消通道；
-      --   2. 越界编号（如 3 项时输 9）直接抛 Lua 错误，整个 code action 崩掉；
-      --   3. 编号输入要用户自己数行，交互差。
-      -- 这里换成 snacks picker。pick_many 是同步函数、调用方直接取返回值，
-      -- 而 picker 只能异步回调，所以必须"协程让出 + 回调 resume"：
-      -- jdtls 的 code action 都跑在 jdtls.async.run 的协程里，可以安全 yield；
-      -- 万一不在协程里（或 picker 创建失败）就回退到上游 input() 版。
+      -- ── 字段/方法多选：Tab 勾选、CR 确认、Esc 取消 ──
+      -- 上游用 vim.fn.input() 收编号：Esc 与空回车等价（无取消通道）、越界编号抛错、交互差。
+      -- 换成 snacks picker；pick_many 是同步函数而 picker 只能异步 ⇒「协程让出 + 回调 resume」，
+      -- 不在协程里或 picker 创建失败时回退上游实现。
       local ok_ui, jdtls_ui = pcall(require, "jdtls.ui")
       local ok_snacks, Snacks = pcall(require, "snacks")
       if ok_ui and ok_snacks and not jdtls_ui._snacks_pick_many then
@@ -332,9 +314,7 @@ return {
       -- 注册适配器（找 jdtls client → startDebugSession → port）已挪进 ensure_java_dap()，
       -- 不再在这里无条件执行——否则打开 .java 就会拖起整条 nvim-dap 链（见上方注释）。
 
-      ------------------------------------------------------------------
-      -- 构建 / 运行：自动在 mvnw / gradlew / mvn / gradle 之间选择
-      ------------------------------------------------------------------
+      -- ── 构建 / 运行：自动在 mvnw / gradlew / mvn / gradle 之间选择 ──
       local function project_root()
         return vim.fs.root(0, { "mvnw", "gradlew", "pom.xml", "build.gradle", "build.gradle.kts" })
       end
@@ -380,9 +360,7 @@ return {
         require("toggleterm").exec(cmdline, 2, nil, root, "horizontal", "Java 测试", false)
       end
 
-      ------------------------------------------------------------------
-      -- 调试：优先用 jdtls 扫出来的主类，扫不到才回退手工输入
-      ------------------------------------------------------------------
+      -- ── 调试：优先用 jdtls 扫出来的主类，扫不到才回退手工输入 ──
       local function pick_main_and_run(configs)
         local dap = ensure_java_dap() -- 按需加载 nvim-dap（见文件顶部注释）
         if #configs == 1 then
@@ -456,9 +434,7 @@ return {
         attempt(1)
       end
 
-      ------------------------------------------------------------------
-      -- 终端测试：运行测试不进入 DAP 调试界面，结果保留在终端中
-      ------------------------------------------------------------------
+      -- ── 终端测试：运行测试不进入 DAP 调试界面，结果保留在终端中 ──
       local function current_test_selector(include_method)
         local bufnr = vim.api.nvim_get_current_buf()
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, true)
@@ -497,9 +473,7 @@ return {
         run_build("test -Dtest=" .. selector, "test --tests " .. selector:gsub("#", "."))
       end
 
-      ------------------------------------------------------------------
-      -- 缓冲区快捷键
-      ------------------------------------------------------------------
+      -- ── 缓冲区快捷键 ───────────────────
       local setup_java_keys = function(bufnr)
         local function d(s)
           return { buffer = bufnr, silent = true, desc = s }
@@ -581,9 +555,7 @@ return {
         vim.keymap.set("n", "<leader>mb", jdtls.build_projects, d("构建: 让 jdtls 重新导入/构建项目"))
       end
 
-      ------------------------------------------------------------------
-      -- 全局命令（不依赖当前 buffer 是否已触发 FileType）
-      ------------------------------------------------------------------
+      -- ── 全局命令（不依赖当前 buffer 是否已触发 FileType） ──
       local function jdtls_ready()
         if #vim.lsp.get_clients({ name = "jdtls" }) == 0 then
           vim.notify("需要先打开一个 Java 项目（jdtls 尚未附加到任何缓冲区）", vim.log.levels.WARN)
@@ -618,9 +590,7 @@ return {
         end,
       })
 
-      ------------------------------------------------------------------
-      -- 启动 / 附加
-      ------------------------------------------------------------------
+      -- ── 启动 / 附加 ────────────────────
       -- 每次启动/附加时重新解析 root_dir 和 cmd（-data workspace_dir 按项目切换）
       -- 首个 Java buffer 的 FileType 会被触发两次（lazy 的 ft handler + runtime filetype.lua），
       -- 没有守卫时 jdtls / spring-boot 会各 start 两次（实测 LSP_START_CALLS=4），这里按 buffer 去重
@@ -632,33 +602,12 @@ return {
         config.root_dir = root_dir
         config.cmd = build_cmd(root_dir)
         config.on_attach = on_attach
-        -- workspace/executeClientCommand 是**服务端→客户端**的请求（VS Code 里由 Java / Spring 扩展实现）。
-        -- 本机收到的两类：
-        --   · `_java.reloadBundles.command`（jdtls 要求客户端重载 bundles；bundles 已在启动时经
-        --     init_options.bundles 传入，nvim 侧无需再做）
-        --   · `vscode-spring-boot.ls.start`（spring-boot LS 的客户端命令；本配置由 spring-boot.nvim
-        --     独立拉起 LS，同样无需客户端动作）
-        -- handler 必须写在 config 里（而不是启动后再补）：第一条请求发生在初始化阶段。
-        --
-        -- ⚠ 这里踩过两个坑（2026-09-25 用户截图定位，nvim runtime 源码 rpc.lua:389-406）：
-        --   1. `return`（返回 nil）**不是"什么都不做"**：nvim 的 rpc.lua:398-406 在
-        --      "status=true 且 result==nil 且 err==nil" 时会主动抛
-        --      `method "…": either a result or an error must be sent to the server in response`
-        --      ⇒ 红色 `vim.schedule callback … rpc.lua:400` traceback，而且这条请求**永远不回**、
-        --      服务端一直挂着（第 11 轮"消 ERROR"其实只是把它换成了另一种报错）。
-        --   2. `error({code=-32601, …})` 会让服务端记 `SERVER_REQUEST_HANDLER_ERROR … Method not found`
-        --      ⇒ 又是一条红色通知。
-        -- 正解有两层：
-        --   ① **必须先查有没有实现**：spring-boot.nvim 把 `vscode-spring-boot.ls.start`（classpath 握手，
-        --      最终调用 `sts.vscode-spring-boot.enableClasspathListening`）注册在**全局** `vim.lsp.commands`；
-        --      而 nvim-jdtls 本来也在**全局** `vim.lsp.handlers` 装了等价转发（jdtls.lua:854-874）。
-        --      ⚠ **client 级 handler 会盖掉全局那个**（client.lua:657）⇒ 必须把"先 client.commands、
-        --      再全局 vim.lsp.commands"这套查找自己复刻一遍，否则那条握手永远不执行：
-        --      后果是**没有 beans / endpoints / application.yml 的 spring.* 补全**（2026-09-25 审查线①发现，
-        --      这是第 11 轮引入的隐性功能回归）。
-        --   ② 查不到实现的命令（如 jdtls 的 `_java.reloadBundles.command`，nvim 侧本就无可做之事）
-        --      **回空结果 `vim.NIL`**（协议里的 JSON null）而不是上游的 MethodNotFound —— 这样 jdtls
-        --      不再记 ERROR；并且**绝不能 `return nil`**（见上面的坑 1）。
+        -- workspace/executeClientCommand（服务端→客户端请求）：nvim 侧必须自己转发，否则
+        -- spring-boot 的 classpath 握手（beans / endpoints / application.yml 补全）永远不执行。
+        -- 三条硬规则（完整踩坑记录见技能 nvim-troubleshooting §19）：
+        --   ① client 级 handler 会**盖掉** nvim-jdtls 装在全局的转发 ⇒ 自己复刻「client.commands
+        --      → 全局 vim.lsp.commands」查找；② 绝不能 `return nil`（runtime 会抛错且请求永不回）；
+        --   ③ 查不到实现时：reloadBundles 回**空表**（jdtls 按 `instanceof List` 分流），其余回 `vim.NIL`。
         config.handlers = {
           ["workspace/executeClientCommand"] = function(_, params, ctx)
             params = params or {}
