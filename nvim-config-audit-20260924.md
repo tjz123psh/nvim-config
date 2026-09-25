@@ -491,7 +491,7 @@ delay = 300,
 - **未做（按约定不动）**：停维护插件替换（project.nvim/dressing/Comment/bufferline/toggleterm）、`~/.config/kitty/kitty.conf`、2 个 WIP 文件的 stylua 全树格式化。
 - **需要你实机确认** → ✅ **已全部验完**：多选弹窗/向导 11 步/`<Tab>` 归属见 §27.8（真 pty：pick_many 勾选+多动作、向导真建项目、blink 压过 neotab）；状态栏与浮窗观感见 §22.5/§27.1（实底统一）；Neovide 见 §27.5（死配置订正 + 其余选项逐个对照官方文档）。
 - **观察项**（原「文档线提出，我未改」）→ ✅ **已结**：`settings.java.configuration.runtimes` **第二轮就补上了**（`JavaSE-21` 默认 + `JavaSE-1.8`，路径不存在自动跳过）；第十二轮又修掉「不带参数只警告、不弹列表」的 `nargs="?"` 缺陷（§27.8 ④ / §28），实测两个 runtime 都能列出、`:JavaSetRuntime` 直接弹列表。
-- **未验证项**（队友如实标注）：`is_selected` 预勾选后 Tab 追加的时序；`<Space>` 勾选只在列表窗口生效；字段路径的"真取消"受上游 `jdtls.lua:138` 不检查返回值限制。
+- **未验证项**（队友如实标注）→ ✅ **已全部验完（§27.8）**：① 预勾选后 Tab 追加的时序正常（本机 jdtls 不给任何项标 `isSelected`，属上游行为）；② `<Space>` 只在列表窗生效（键位作用域，判不算缺陷）；③ 「真取消」确认是**上游限制**（fields 三处调用点不检查空返回）。原始标注：`is_selected` 预勾选后 Tab 追加的时序；`<Space>` 勾选只在列表窗口生效；字段路径的"真取消"受上游 `jdtls.lua:138` 不检查返回值限制。
 ---
 
 ## 14. 第四批：picker 观感精修（2026-09-24 深夜）
