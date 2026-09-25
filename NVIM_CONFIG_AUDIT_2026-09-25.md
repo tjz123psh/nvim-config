@@ -50,9 +50,9 @@
 
 - 工作目录：`/home/pang/.config/nvim`。
 - 复查时 Git HEAD：`53d101535aaaf828da27dc7ccd3ce42eab21ae7d`。
-- 本体 **43 个 Lua 文件，共 5,910 行**（含注释与空行）；[插件锁文件](<lazy-lock.json>)记录 **36 个插件条目**。
+- 主体测试采样为 **43 个 Lua 文件，共 5,910 行**（含注释与空行）；交付前外部修改使总行数变为 **5,946 行**；[插件锁文件](<lazy-lock.json>)记录 **36 个插件条目**。
 - 最大三个模块：[Spring 向导](<lua/core/spring_wizard.lua>) 1,171 行、[Java](<lua/plugins/lang/java.lua>) 674 行、[命令模块](<lua/core/commands.lua>) 483 行，合计约 **39.4%** 的 Lua 行数。行数不是质量分，但说明复杂性集中在哪里。
-- 开始时观察到 [速查表](<lua/core/cheatsheet.lua>)、[Sidekick 配置](<lua/plugins/sidekick.lua>)有未提交修改，随后工作树变为干净。本轮没有提交、还原或覆盖这些文件；结论依据复查时实际读到的内容。
+- 开始时观察到 [速查表](<lua/core/cheatsheet.lua>)、[Sidekick 配置](<lua/plugins/sidekick.lua>)有未提交修改，随后工作树变为干净；交付前又观察到 Sidekick 外部新增 36 行滚轮/PTY 转发逻辑。已重新读取并校正报告行号，F03/F16 涉及的逻辑没有变化，其他 42 个 Lua 文件与主体测试采样内容一致。本轮没有提交、还原或覆盖这些配置文件；新加滚轮行为只做静态复核及语法/格式检查，未启动 AI CLI 验收。
 - 已加载本机 nvim-config / nvim-troubleshooting 审查规范；规范中的历史结论只作为线索，遇到冲突以当前配置和本机插件/runtime 为准。
 
 ### 2.2 验证纪律
@@ -158,7 +158,7 @@
 
 **证据：源码、条件；没有执行真实 kill。**
 
-位置：[目标选择](<lua/plugins/sidekick.lua#L90-L98>)、[重启操作](<lua/plugins/sidekick.lua#L100-L119>)；上游 [close 的实现](</home/pang/.local/share/nvim/lazy/sidekick.nvim/lua/sidekick/cli/init.lua#L154-L159>)。
+位置：[目标选择](<lua/plugins/sidekick.lua#L126-L134>)、[重启操作](<lua/plugins/sidekick.lua#L136-L155>)；上游 [close 的实现](</home/pang/.local/share/nvim/lazy/sidekick.nvim/lua/sidekick/cli/init.lua#L154-L159>)。
 
 - **触发**：存在多个 AI CLI / 多个项目会话，从普通编辑窗口按 `<leader>aR`。
 - **问题链**：没有面板 session id 时 pairs(terminals) 任取一项 → kill-session 未确认、未检查退出码 → close() 又不指定该对象 → 150 ms 后仅按 tool 重开 → 立即通知“已重启”。
@@ -318,11 +318,11 @@ expand(".") 仍是相对路径。创建完成先 chdir(parent/name)，然后 fin
 
 **证据：运行 + 源码。**
 
-位置：[仅 keys 懒加载](<lua/plugins/sidekick.lua#L15-L24>)、[用户命令说明](</home/pang/md/nvim/nvim命令.md#L82-L90>)。
+位置：[仅 keys 懒加载](<lua/plugins/sidekick.lua#L26-L35>)、[用户命令说明](</home/pang/md/nvim/nvim命令.md#L82-L90>)。
 
 - 冷启动实测 exists(":Sidekick") = **0**；上游命令在 setup 后才注册。本地没有 cmd 桩。
 - 因而按文档直接执行 Sidekick cli show/select/close 会遇到命令不存在，按一次 AI 键或手动加载后才可用。
-- 命令 select 的“只列已安装”描述也不准确：该过滤明确写在[本地快捷键](<lua/plugins/sidekick.lua#L76-L78>)，不是裸命令的默认参数。
+- 命令 select 的“只列已安装”描述也不准确：该过滤明确写在[本地快捷键](<lua/plugins/sidekick.lua#L112-L114>)，不是裸命令的默认参数。
 - **建议**：补 cmd="Sidekick" 懒加载入口，或统一写清命令的先加载条件，并区分裸命令与包装快捷键的过滤行为。
 
 ### F17 · P3 · 在线说明与用户文档出现多处漂移
@@ -506,7 +506,12 @@ core/
 命令范围案例（仅 scratch buffer，不加载用户完整配置，不写文件）：
 
 ```bash
-nvim -n -i NONE -u NONE --headless   '+lua dofile("/home/pang/.config/nvim/lua/core/cjk_punct.lua")'   '+lua vim.api.nvim_buf_set_lines(0,0,-1,false,{"甲，","乙。","丙！"})'   '+2CJKPunctFix'   '+lua print(vim.inspect(vim.api.nvim_buf_get_lines(0,0,-1,false)))'   '+qa!'
+nvim -n -i NONE -u NONE --headless \
+  '+lua dofile("/home/pang/.config/nvim/lua/core/cjk_punct.lua")' \
+  '+lua vim.api.nvim_buf_set_lines(0,0,-1,false,{"甲，","乙。","丙！"})' \
+  '+2CJKPunctFix' \
+  '+lua print(vim.inspect(vim.api.nvim_buf_get_lines(0,0,-1,false)))' \
+  '+qa!'
 ```
 
 报告内已保留关键输出。完整临时取证位于本次审计目录：
