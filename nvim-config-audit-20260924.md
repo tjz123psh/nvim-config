@@ -9,7 +9,7 @@
 > **📌 最终状态（2026-09-24 收尾，第一轮）**：**结论汇总 / 已解决 / 未解决 / 事故 / 验收命令 / 回滚点 / 方法论坑** 见 **§19「最终状态与交接」**。
 > **📌 换会话/压缩后**：直接粘 **§25「新会话启动提示词」** 那段（自带目标、必读顺序、环境前提、不要重做的事、待办与验收命令）。
 >
-> **📌 最新（2026-09-25 第十一轮收尾，Agent Teams 并行）**：**工作台账 §23 已 100% 结清** —— ✅ 已解决 50+ / ⏳ 未解决 **0** / 🟡 待决定 **0**（6 项均已拍板落地）/ ❓ 尚未排查 **11/11 已结**。第十一轮把台账最后 6 项 + 历史快照全部做完：**§27.1** bufferline/alpha 并入统一 soft 调色（并加 `padding = 1` 修掉标签栏 1 列偏差）、**§27.2** 历史快照节全部标注结清、**§27.3** 项目历史多实例并发压测**复现出真实截断 bug 并落地修复**（`project.lua` 写守卫：会丢就只追加、绝不截断）、**§27.4** DAP 深挖（空 logMessage 上游语义 + `session:request` 空数组根因）、**§27.5** Neovide 死配置订正、**§27.6** neo-tree 80 列定性（窗口没错位，标签栏 offset 差 1）、**§27.7** 性能压测（无 >500ms 交互停顿）。§26 是第九/十轮记录；**压缩后从 §23 台账 + §27 继续**。
+> **📌 最新（2026-09-25 第十一轮收尾，Agent Teams 并行）**：**工作台账 §23 已 100% 结清** —— ✅ 已解决 50+ / ⏳ 未解决 **0** / 🟡 待决定 **0**（6 项均已拍板落地）/ ❓ 尚未排查 **11/11 已结**。第十一轮把台账最后 6 项 + 历史快照全部做完：**§27.1** bufferline/alpha 并入统一 soft 调色（并加 `padding = 1` 修掉标签栏 1 列偏差）、**§27.2** 历史快照节全部标注结清、**§27.3** 项目历史多实例并发压测**复现出真实截断 bug 并落地修复**（`project.lua` 写守卫：会丢就只追加、绝不截断）、**§27.4** DAP 深挖（空 logMessage 上游语义 + `session:request` 空数组根因）、**§27.5** Neovide 死配置订正、**§27.6** neo-tree 80 列定性（窗口没错位，标签栏 offset 差 1）、**§27.7** 性能压测（无 >500ms 交互停顿）。§26 是第九/十轮记录；**压缩后从 §23 台账 + §27 继续**。 第十二轮（用户反馈）见 **§28**：欢迎页恢复黄色 / **DAP 按需加载**（打开 .java 不再加载 nvim-dap·dap-ui·virtual-text·nio）/ 大文件防御决定不加 / 清理旧 jdtls workspace（507M→108M）。
 >
 > **📌📌📌📌📌📌 第六轮（2026-09-25，用户："再次全面检查并修复"）**：三条只读审查线（视觉一致性 / 正确性与兼容性 / 交互体验与性能）+ Lead 自查；已修：`:JavaBuildProjects`/`:JavaSetRuntime` 在非 Java 会话消失（改 lazy `cmd` 桩 + 友好守卫）、速查面板给 LSP/Java 小节补作用域提示、我上一轮的 `winhl` 单行化。还核对了 checkhealth 的良性噪音、文档↔配置双向一致（键位 116 个、命令 10 个）、blink/neotab 的 Tab 行为。见 **§22**。
 >
@@ -1663,3 +1663,56 @@ hover            → Empty hover response
 
 **Agent Teams 分工与产物**：task-4 hist-stress（→ §27.3）、task-5+task-10 uirepro（→ §27.6 / §27.8）、task-6 dapdev（→ §27.4）、task-7 perf（→ §27.7）、task-8/9 Lead（→ §27.1 / §27.9）。所有 teammate 报告在删除前已归档进 `~/backups/nvim-config-round12-*/evidence/`。
 
+
+---
+
+## 28. 第十二轮：用户反馈的三件事（2026-09-25 傍晚）
+
+> 用户：『这个之前的那个黄色挺好看的，恢复一下』+『性价比最高的下一步（DAP 按需加载）搞呗』+『那就不加也没有事（大文件防御）』+『可以清理（旧 jdtls workspace）』。
+
+### 28.1 欢迎页黄色恢复
+
+上一轮我把 alpha 的 Logo/快捷键改成蓝色、页脚改灰（§27.1），用户明确要回原来的黄色 ⇒ **整文件回退** `lua/plugins/dashboard.lua` 到 `a94cbfe` 版本（`git diff a94cbfe -- lua/plugins/dashboard.lua` = **0 行**），即 Logo/页脚 = `Type`(#f9e2af 黄)、按钮文字 = `Label`、快捷键 = `Keyword`(mauve)。
+
+真 pty 复验：Logo 行前景色 `f9e2af`、单元格 bg 直方图仍是 `{default:3000}`（顶部没有空横条）；截图 `~/backups/nvim-config-round13-20260925-141500/shots/alpha-yellow.png`。**上一轮 bufferline 的实底统一调色与 `always_show_bufferline=false` 保留**（用户没反对那部分）。
+
+### 28.2 DAP 按需加载：打开 .java 不再拖起整条 nvim-dap 链
+
+**改前**：`lua/plugins/lang/java.lua` 在 `ft=java` 时无条件 `require('jdtls.dap')` + `require('dap')` + `jdtls.setup_dap()` ⇒ **打开任意 .java 就同步加载 nvim-dap + nvim-dap-ui + nvim-dap-virtual-text + nvim-nio**。
+
+**改后**：新增幂等的 `ensure_java_dap()`（`lua/plugins/lang/java.lua:157-163`），Java 的 DAP 接线推迟到真正要调试时；三个入口先调它——`pick_main_and_run()`、`debug_java()`（`<F5>`）、`<leader>Jd` 重扫主类；断点键位与 `<F5>`/`<leader>Jg/JG` 本身由 lazy 的 `keys` 或 nvim-jdtls 自带实现按需触发。
+
+| 证据（同一 .java 文件、同一工程副本） | 改前 | 改后 |
+|---|---|---|
+| 打开 .java 时加载的插件 | nvim-dap, nvim-dap-ui, nvim-dap-virtual-text, nvim-nio | **四个都不再加载**（空） |
+| startuptime 里 dap/nio 相关条目 | 43 条（dap 链 self 合计 ≈ **8.7ms**） | **0 条** |
+| 延后付的代价：冷加载 dap 链 + `setup_dap` | — | **4.69ms**（首次调试时才付） |
+| 整机启动总耗时（7 轮交替 A/B） | 中位 157.3ms | 中位 173.3ms ⇒ **被机器负载/jdtls 异步淹没，不作为收益证据**（诚实记录：本轮没测出总耗时收益；收益体现在『不再加载 4 个插件』） |
+
+**功能验证**（最小 Maven 工程副本 + 全新 `-data`，探针按 §27.4 的正确姿势发 DAP 请求）：
+
+- `<F5>` 调试主类：会话打开、**停在第 5 行断点**；`threads=6`、`stackFrames=[App.add(int,int) @App.java:5, App.main(String[]) @App.java:10]`、`Local: a = 3, b = 4`、**dapui 5 个面板**；截图 `~/backups/nvim-config-round13-*/evidence/dap-f5-stop-vars.png`。
+- `<leader>Jg` 调试测试方法：通知 **『Tests finished. Results printed to dap-repl. ✓ 1 succeeded』**。
+- **观察项（不是本轮改动引起）**：在他自己的 feed-java 副本里 `<F5>` 会打印 `Could not resolve java executable for io.github.p_feed.ApiApplication / WorkerApplication`（主类扫得到、javaExec 解析失败）；用**改前/改后两份配置做 A/B，表现完全一致**，而最小工程一切正常 ⇒ 记为待观察（疑与该工程 spring-boot LS 的 `workspace/executeClientCommand` 报错或导入未完成有关；下次在他真机上先 `:JavaBuildProjects` 等导入完再试）。
+- 顺带纠错：DAP `threads` 响应体是 `{threads={...}}` 而**不是**数组（旧探针读 `#res.r` 恒得 0），与 §27.4 的 `stackFrames` 是同类坑。
+
+### 28.3 大文件防御 autocmd：**不加**（用户：『那就不加也没有事』）
+
+保持现状：`plugins/snacks.lua` 的 `bigfile = { enabled = false }` 不动；依据是 §27.7 的压测（键位可达路径没有 >500ms 停顿，关高亮每次只省 ≤0.2ms）。
+
+### 28.4 清理旧 jdtls workspace（用户：『可以清理』）
+
+删除 9 月 5–24 日的 8 个旧 workspace（docs / javaproj / jproj / nvim / some-very-long-project-name / tmp- / w1jb / w2verify）+ 本轮测试产生的两个（java-demo-*、feed-java-6a4ab4a060 —— 后者用 sha256 前缀核对确认属于 `~/tmp/dapcheck/feed-java` 副本）。目录 **507M → 108M**，只剩 `feed-java-f631125a78`（用户真工程的 workspace）。
+
+### 28.5 ⚠ 本轮我犯的一个错：pkill 模式误伤用户会话的 jdtls
+
+我在测量脚本里用 "pkill -f jdtls-workspace/feed-java-" 清理**我自己起的** jdtls，但这个模式**同时命中了用户会话的 workspace** `feed-java-f631125a78` ⇒ 把他正在用的 jdtls 杀了（spring-boot LS 随之退出）。
+
+- 现状核查：此刻进程表里已经没有 Neovide / `nvim --embed`（用户会话本身已不在运行），只剩 DSH 自己的 `grok` 及其 lua-language-server；也就是说**没有正在受损的会话**，下次打开 Neovide 时 `ft=java` 会正常重新启动 jdtls。
+- 教训（已写进技能 §18.8）：清理自己起的服务必须**按精确 PID**，或把测试工程放在只有自己会用的目录下、用**该全路径**做匹配；**禁止**用 `feed-java-` 这类会命中用户真实 workspace 的短模式。
+
+### 28.6 验收
+
+- `stylua --check .` 41/41 exit 0；`nvim --headless '+qa'` exit 0；插件 **35**；真实项目历史文件未被本轮触碰。
+- 提交：`~/.config/nvim` 配置 + 台账两个提交；`~/md` 一个（只 nvim/ 两个文件）。
+- 临时目录 `~/tmp/dapcheck`（含 feed-java 副本、最小工程、A/B 配置副本）已删除；证据归档在 `~/backups/nvim-config-round13-20260925-141500/`。
