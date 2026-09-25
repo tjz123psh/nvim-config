@@ -1821,3 +1821,137 @@ vim.schedule callback: /usr/share/nvim/runtime/lua/vim/lsp/rpc.lua:400: method "
 | 6 | snacks health 报 `vim.ui.select is not set to Snacks.picker.select` | 📌 **登记为 known-benign**：这是真报错但**不能修**——那层 wrapper 是修「列表填满时底边框被吃掉」的（`snacks.lua:215-257`），包一层就必然让身份比较 `== Snacks.picker.select` 失败；已在 wrapper 上方加注释说明，功能路径完全正常 |
 | 7 | md 缺 neo-tree `.` | ❌ **误报**（`nvim快捷键.md:64` 已有），已在台账澄清、不改文档 |
 | 8 | devicons 启动期加载 / 6 组重复 spec | 📌 有意设计 + 非缺陷，仅记录（`core/lazy.lua:33-40` 注释已解释 `defaults.lazy=false` 的语义） |
+- **补充（hist-stress 的独立观察）**：这类孤儿**高频但短命** —— 父 nvim 被 kill 后 LS 被 reparent，多数会在几秒内因管道关闭自行退出（15:15:55 抓到的 2 个，15:16:06 已消失）；我清掉的那 28 个是**没能在窗口内退出**的那批（含 5 个 jdtls 本体）。所以收尾规则里『断言 PPID=847 无残留』应放在**收尾后几秒**再执行一次，别只看瞬时。
+
+#### 29.2.3 🔴 审查线① 抓到的**功能性回归**：round 11 的 handler 一直在吞 spring-boot 的 classpath 握手（已修，待 B/C 变体收尾验证）
+
+**机制**（lspaudit 静态定位 + 变体 A 实测）：`spring-boot.nvim` 把 `vscode-spring-boot.ls.start`（classpath 握手，最终发 `sts.vscode-spring-boot.enableClasspathListening`）注册在**全局** `vim.lsp.commands`；而 `nvim-jdtls` 本来也在**全局** `vim.lsp.handlers['workspace/executeClientCommand']`（`jdtls.lua:854-874`）装了「先查 client.commands、再查全局 commands」的转发。**第 11 轮把 handler 写进 client 级 `config.handlers` 后，client 级优先（`client.lua:657`）把全局那个整个盖掉** ⇒ 握手自那时起从未执行。
+
+**变体 A（= `87b527f`，handler 一律 `return vim.NIL`）实测证据**：
+
+| 证据 | 结果 |
+|---|---|
+| `cmds_A.log` | `REGISTER vscode-spring-boot.ls.start` 有，**`CALL` 一次都没有** |
+| 客户端 `lsp.log` | `sts.vscode-spring-boot.enableClasspathListening` 只出现在 spring-boot client 的 initialize 能力清单里，**没有任何 `rpc.send`** |
+| Spring Boot LS 自己的日志（`bootls-A.log`） | `enableClasspath=false` / `current enablement = false`；全文件 `enabled = true` 出现 **0** 次 |
+| application.yml 补全 | 输入 `spring.d` → spring-boot client 返回 **items=0**（与上游注释「no beans, no endpoints, no application.yml properties」完全一致） |
+| 客户端 `:messages` | 四个报错关键词仍为 0（说明 §29.1 的红色报错修复有效） |
+
+**第二层发现（同一轮）**：对 `_java.reloadBundles.command` 回 `null` 也**不对** —— `JDTLanguageServer.synchronizeBundles()` 按返回值类型分流（`instanceof List` → loadBundles；`instanceof Map` → logError；**其它含 null → `logError("Unexpected result from executeClientCommand: null")`**，lspaudit 用 `javap` 反编译核实），所以 `.metadata/.log` 每次启动仍会记一条。**正解：回空表**（协议里编码成 `[]` → 命中 List 且 size=0 → 不做事也不报错）。
+
+**修复（已落地，`lua/plugins/lang/java.lua` 的 `config.handlers`）**：handler 改为「先 `client.commands[cmd]` → 再全局 `vim.lsp.commands[cmd]`，命中就 `pcall` 执行并把结果回给服务端（nil → `vim.NIL`，等价上游实现）；**查不到实现时**：`_java.reloadBundles.command` → 回 `{}`（空数组），其它 → 回 `vim.NIL`」。这样握手回来了、jdtls 的两类 ERROR 也都没了。
+
+**B/C 变体收尾**（lspaudit 跑完变体 A 后两次中断失败 ⇒ 由 Lead 用更精确的方式完成验证）：
+
+| 断言 | 结果 |
+|---|---|
+| 客户端 `:messages` 五类关键词（`SERVER_REQUEST_HANDLER_ERROR` / `rpc.lua:400` / `Method not found` / `either a result or an error` / `Could not resolve java executable`） | **全 0** |
+| jdtls `.metadata/.log` 的 `Unexpected result from executeClientCommand` | 15:04–15:21（旧 handler）8 条；**15:30 之后（新 handler）0 条新增** |
+| 真实会话里 `vscode-spring-boot.ls.start` 是否注册 | `全局命令=true`（t≈10s 起），两个 client 的 `commands` 表都在 |
+| **转发链单测**（在真 Java 会话里直接调 `client.handlers['workspace/executeClientCommand']`） | ① 全局命令：**命中 1 次、返回值 `DELEGATED_OK` 原样回传**；② `client.commands` 路径：命中 1 次、返回 `CLIENT_LEVEL_OK`；③ `_java.reloadBundles.command` → **空表**（`type=table, next=nil`，正合 jdtls 的 `instanceof List`）；④ 未知命令 → `vim.NIL`；⑤ 真实命令已注册 ✓ |
+| `<F5>` 真机回归（同一副本工程） | `session_open=true`、`threads=25`、`javaExec_err=false`（§28.2 的「待观察」项随之关闭） |
+
+⇒ **结论：round 11 引入的「classpath 握手被吞」回归已修复并有正向证据**（转发命中 + 返回值回传），同时 jdtls 侧两类 ERROR（`Method not found`、`Unexpected result … null`）都归零。
+
+#### 29.2.4 审查线③ 真机运行时走查（task-13：原派 uirepro，该成员**两次中断失败**未产出报告 ⇒ Lead 直接接管）
+
+**接手方式**：不重跑 —— uirepro 已经抓了 **60+ 份真 pty 抓屏 + 17 个用例的采样 sidecar**（`~/tmp/audit2/runtimeaudit/raw/`，15:07–15:22），Lead 直接对这些证据做三层挖掘，并自己补验 2 个判定项。
+
+**覆盖的项**（从文件名与 sidecar 可证）：启动页 3 次冷启、picker **七个源**（files/grep/recent/buffers/help/projects/commands）、neo-tree 打开与操作（`Z`/`.`/`H`/`p`/`y`/`x`/`c`）、终端三键（float/hsplit/vsplit、`ts`/`tf`、`jk` 退出）、自动保存、格式化、which-key（普通 + **可视**）、速查面板（含滚动）、项目切换（含**带空格路径**）、向导前两步 + Esc、Lua LSP（hover/定义/引用/codeAction/诊断/重命名）、Java LSP（hover/gd/refs/ca/diag）、`:checkhealth`、`:Lazy`、历史面板。
+
+**三层证据的结论**：
+
+1. **17/17 个 `*.notify.jsonl` 全部为空** ⇒ 整轮走查**没有任何 `vim.notify` 弹窗**（用户截图那种红框在走查里一次都没出现）。
+2. 全部 `*.raw` 做屏幕级扫描（`E\d+:` / Error / deprecated / not found，排除探针自身的 E1568）→ 只有下表 5 处命中。
+3. `*.jsonl` 的 `errmsg` / `msgs_delta` 聚合 → 除下表外只剩 `Already at oldest change`、`No more valid diagnostics to move to` 这类边界提示。
+
+| 命中 | 判定 |
+|---|---|
+| `E492: Not an editor command: Format`（`s5b-fmt`/`s5b-wk`） | **探针自造**：本配置的格式化入口是 `<leader>F`（conform，`cheatsheet.lua:106` 也写的这个），`:Format` 从来不存在 |
+| `E486: Pattern not found: ^local x=1`（`s6b-write`） | **探针自造**（搜一个不存在的模式） |
+| `vim.lsp.stop_client() is deprecated`（`pickers4`） | **探针自造**：来自 `probe_audit.lua:127` 的收尾调用；配置里 `stop_client`/`set_log_level` **0 处** |
+| `bash: jk/q/tvecho: command not found`（`neotree`） | **探针时序**：`jk` 我单独真机复验 —— `mode_after_jk=n`、`buftype=terminal`、`termkeys=true` ✓（`keymaps.lua:21` 的 `t` 模式映射有效） |
+| `v:errmsg` 里的 `E216: No such group or event: java_spotbugs_post User <buffer>` | **上游 Neovim runtime**：`/usr/share/nvim/runtime/ftplugin/java.vim:375` 的 `b:undo_ftplugin` → `JavaFileTypeCleanUp()` 里 `silent! autocmd! java_spotbugs_post User <buffer>`；`silent!` 已抑制显示（**屏幕扫描 0 命中**），只落进 `v:errmsg` ⇒ 用户不可见、无功能影响，登记 known-benign |
+
+**结论：运行时没有发现任何用户可见的配置缺陷** —— 5 处命中里 4 处是探针自造、1 处是上游 runtime 的 silent 噪音。task-13 由 Lead 接管完成（`uirepro` 的失败不追究，其 raw 证据已全部利用）。
+
+#### 29.2.5 审查线④b 性能回归（task-15，perf 交付；静默批数字由 Lead 从其 raw 结果回填）
+
+**① DAP 按需（与负载无关的硬结论）**：打开大 `.java` 后 `--startuptime` 里 dap/nio 路径条目 **0**、`require('dap')` 条目 **0**（headless + 真 pty 各 5 次，零抖动）；同一方法回退到 `e74dc87` 的变体稳定 **43 条**（与 §28.2 的 before 完全对上）。进程内断言：`nvim-dap`/`nvim-dap-ui`/`nvim-dap-virtual-text`/`nvim-nio` 四个 `registered=true` 但 `lazy_loaded=false`、`package.loaded.dap == nil` ⇒ **按需加载没有被破坏**。
+
+**② 启动（中位，无回退）**：
+
+| 用例 | 本轮 headless | task-7 静默期对照 | 真 pty（本轮 / task-7） |
+|---|---|---|---|
+| 空会话 | **51.2ms** | 51.4ms | 157.3 / 180.4 |
+| 大 .java（20k 行） | **98.7ms** | 115.0ms | 212.8 / 239.2 |
+| 大 .lua（20k 行） | **71.7ms** | — | 180.6 / — |
+
+top5 无单项 >300ms；打开 `.java` 时最大新增项是 `require spring_boot` 16–25ms。
+
+**③ jdtls 索引（静默批：窗口内 loadavg 5.2→3.6，背景常驻用户 jdtls 1110MB）**：
+
+| 指标 | 冷 | 热 | task-7 静默对照（冷/热） |
+|---|---|---|---|
+| LspAttach | 4131ms | 3813ms | — / — |
+| **到 `documentSymbol` 非空** | **14.19s** | **5.56s** | 7.16s / 7.28s |
+| JVM 峰值 RSS | 2525MB | 856MB | 1658MB / 888MB |
+| JVM 最大 CPU | 1224% | 1043% | 1209% / 1074% |
+| JVM 累计 CPU | 65.7s | 20.9s | 72.0s / 40.1s |
+
+**判定**：**热启动无回退**（5.56s ≤ 7.28s）；**冷启动就绪时间随背景负载剧烈波动**（task-7 静默期 7.16s vs 本轮 14.19s，本轮窗口内用户会话的 jdtls 常驻 1.1GB、loadavg 中位 4.6）⇒ 按「上界」口径记录，**不构成回退证据**；冷启动的 RSS（2.5GB）同理。
+
+**④ 资源/孤儿**：`orphan_jdtls_count=0`、`orphan_nvim_count=0`；workspace 体积 **113MB → 113MB**、`lsp.log` 748KB → 748KB、`dap.log` 4KB → 4KB（**零增长**）；用户会话的 jdtls/spring-boot LS 全程未动。
+
+**⑤ 附带发现**：perf 在自己的窗口里独立复现了孤儿 LS 泄漏（3 个 `PPID=847`、age 2–30s 的 `language-server.jar`），与 §29.2.1 同因；其收割脚本已加清理步骤。
+
+#### 29.2.6 审查线④ 数据安全与资源（task-14，hist-stress 交付；就绪测量由 perf 覆盖）
+
+**① 并发历史压测复跑（8 场景全跑，约 3.5 min）——三条断言全过、无回退**：
+
+| 场景 | 指标 | 事故态（补丁前） | 第十二轮 | 本轮 15:08 |
+|---|---|---|---|---|
+| A | 插件文件「轮末 0 字节」轮数 | 20/20 | 0/20 | **0/20** |
+| A | 8 实例看到完整并集 / 恢复实例 | — | 20/20 + 20/20 | **20/20 + 20/20** |
+| C | 并发阶段结束插件文件行数 | [8,2,0,1,8,0,8,8,8,6] | 恒 8 | **恒 8** |
+| E | 受害者摧毁磁盘历史 | True | False | **False** |
+| F | 插件文件轮末 0 字节轮数 | 11/20 | 0/20 | **0/20** |
+| G | **永久丢失** | True | False | **False**（恢复后存活 8 条） |
+| B | 半截行 + 40 次 SIGKILL | — | 无丢条目 | **可见列表 8、0 次丢条目** |
+| H | 守卫语义代价（陈旧条目留存） | False | True | **True**（读取端过滤，可见列表仍 8） |
+
+真实文件核对：`project-history.list` = `3ea8a5a7…`、`project_history` = `2c993a29…`，**运行前后逐字节一致**（备份在 `~/backups/nvim-config-regressaudit-20260925-150810/real.sha256`）。
+
+**② 启动 / DAP 按需（真实配置、真实 XDG，3 次中位）**：空会话 **56.6ms**、大 `.java` **125.7ms**（dap 链条目 **0**，只剩上游 `require('jdtls.dap')` 1 条）、大 Lua **153.3ms**；打开 `.java` 后 `package.loaded` 里 dap / dap-ui / nio / dap-virtual-text **全 false** ⇒ §28.2 的按需加载**仍然有效**。
+
+**③ 泄漏链的独立复现 + 收尾规则落地**：hist-stress 自己 `job_kill` 就绪测量后，spring-boot LS 被 reparent 成 `PPID=847`（`pid=2472905, RSS 535MB, cwd=…/regressaudit`）；根因是它原来的 `kill_mine()` **只按项目名匹配 jdtls、没覆盖 `language-server.jar`**。已实现 `bin/cleanup_mine.sh`：先 kill 自己 nvim → 再按 `/proc/<pid>/cwd` 归属补杀 jdtls 与 `language-server.jar`（含 `ps --ppid` 抓子树）→ 最后断言相关进程=0 且 `PPID=847 的 java = 0`（本次 `CLEAN_OK`）。
+
+**④ 归属分类器的修正（值得记）**：首版用 **cmdline 关键字**判 java，把 `lua-language-server` 和审计自己的 shell 都算成 java（假阳性 `MINE=1`）；改为**只认 `/proc/<pid>/exe` 指向 java** 的进程后 `MINE=0`。
+
+**⑤ 体积与日志**：`jdtls-workspace` 213MB →（峰值）426MB →（清理自己两个目录后）**213MB**，用户 `feed-java-f631125a78`(108MB) 原样未动；`lsp.log` +75KB（**仍不轮转**，台账 §2.1 历史已知项）；`dap.log` 0→85B；headless nvim 残留 0。
+
+**⑥ 新发现（探针纪律，重要）**：**凡是用真实 XDG 起 nvim 的探针都会改用户的项目历史** —— project.nvim 在带 `.git`/`pom.xml` 的目录里会记一笔（他们正是靠这一点把「窗口后文件变化」归因到其他队友的真实配置会话）。⇒ 探针默认隔离 `XDG_STATE_HOME`/`XDG_DATA_HOME`，已固化进技能 §18.10。
+
+**⑦ 未完成项**：他们的「打开 .java → 就绪」只拿到 `attach=7.26s`（被我的暂停要求中断）；该项已由 perf 的冷/热 `documentSymbol`（§29.2.5）覆盖，不再重复跑。
+
+### 29.3 本轮审查总账（「一起解决」的结果）
+
+| # | 来源 | 问题 | 严重度 | 处置 |
+|---|---|---|---|---|
+| 1 | 用户截图 | `SERVER_REQUEST_HANDLER_ERROR … vscode-spring-boot.ls.start` + `rpc.lua:400` traceback | **P1（用户可见）** | ✅ 已修（§29.1：`return nil` 的坑 + `error(-32601)` 的坑，改为回空结果 `vim.NIL`） |
+| 2 | 审查线① | round 11 的 client 级 handler **盖掉全局转发** ⇒ spring-boot classpath 握手从未执行（无 beans/endpoints/yml 补全） | **P1（功能性）** | ✅ 已修（§29.2.3：复刻上游「client.commands → 全局 vim.lsp.commands」查找 + `pcall` 转发，单测证明命中并回传返回值） |
+| 3 | 审查线① | 对 `_java.reloadBundles.command` 回 `null` 会让 jdtls 记 `Unexpected result from executeClientCommand` | P2 | ✅ 已修（§29.2.3：该命令回**空表** → JSON `[]` → 命中 `instanceof List`） |
+| 4 | 审查线② | lazy 更新检查器**每次启动对 35 个插件 git fetch**（与「启动期不联网」冲突） | **P2** | ✅ 已修（`core/lazy.lua`：`checker.enabled = false`，需要时手动 `:Lazy check`） |
+| 5 | 审查线② | snacks 6 个**伪模块键**（`zoom`/`util`/`list`/`job`/`git_linker`/`git_hosting`） | P3 | ✅ 已删（附注释说明为什么不是模块） |
+| 6 | 审查线② | `mason-tool-installer` 的 `event="VeryLazy"` 是**死触发器**；`treesitter` 的 `cmd` 在 `lazy=false` 下是**死桩** | P3 | ✅ 已删两处（声明与实际加载时机对齐） |
+| 7 | 审查线② | md 缺 `:ToggleTerm` 与 treesitter 三命令 | P3 | ✅ 已补 `~/md/nvim/nvim命令.md` |
+| 8 | 审查线② | snacks health 报 `vim.ui.select is not set to Snacks.picker.select` | 良性 | 📌 known-benign（wrapper 是修「列表底边框被吃」的，包一层必然让身份比较失败；已加注释） |
+| 9 | 审查线② | md 缺 neo-tree `.` | — | ❌ **误报**（`nvim快捷键.md:64` 早有正文说明） |
+| 10 | 审查线③ | 运行时走查 60+ 抓屏：17/17 `notify` 为空，屏幕级扫描 5 处命中（4 处探针自造 + 1 处上游 runtime silent E216） | — | ✅ 无需改配置（§29.2.4；`jk` 已复验 `mode_after_jk=n`） |
+| 11 | 审查线④ | 探针 kill 后 **spring-boot LS 变 PPID=847 孤儿**（我清掉 28 个/8.1GB；队友各自复现） | **P2（环境/纪律）** | ✅ 已清 + 收尾规则固化（技能 §18.9）；「高频但短命」的观察已记录 |
+| 12 | 审查线④ | 探针用**真实 XDG** 会改用户项目历史；归属判定用 cmdline 关键字会误判 | P3（纪律） | ✅ 固化进技能 §18.10（默认隔离 XDG、用 `/proc/<pid>/exe`） |
+| 13 | 审查线④b | DAP 按需 / 启动 / 数据安全**全部无回退**（DAP 条目 0 vs 回退变体 43；永久丢失 False；历史文件 sha256 不变） | — | ✅ 结论记录（§29.2.5/§29.2.6） |
+
+**遗留（都不是待办，已登记理由）**：① 冷启动索引就绪时间随背景负载在 7.2–14.2s 间波动（不可控因素：用户会话常驻 jdtls）；② `lsp.log` 不轮转（历史已知项，+75KB/轮）；③ snacks health 的那条 known-benign；④ 上游 nvim-jdtls 的 fields 类 `pick_many` 无取消通道（§27.8 ②c）；⑤ 未覆盖：go/rust 语言链、GUI(neovide) 路径。
+
+**提交**：`~/.config/nvim` 两个提交（`fix(java)` 本轮 handler 修复 + 审查线② 的配置修复；台账 §29 记录），`~/md` 一个（`nvim命令.md` 补两行）。
