@@ -12,6 +12,17 @@
 -- 键位：<leader>a* 此前为空（本配置 leader 组只有 b/c/d/f/h/r/s/t/v/w/G/J/m/o/R）。
 -- ============================================
 
+-- 把按键**直接写进 CLI 的 pty**（终端模式下 nvim 会原样转发给程序）。
+-- ⚠ 不用 sidekick 的 t:send()：它走 nvim_put 模拟键入，ESC 序列可能被 nvim 当成
+-- "退出终端模式"而不是转发（滚轮 → PageUp 这类转义序列必须走 pty）。
+-- ⚠ 必须定义在文件顶层：opts 表里的闭包在 spec 解析期就建好了，定义在 config 里会拿到 nil。
+local function pty_send(t, keys)
+  local chan = t.job or (t.buf and vim.bo[t.buf].channel)
+  if chan and chan > 0 then
+    vim.api.nvim_chan_send(chan, keys)
+  end
+end
+
 return {
   "folke/sidekick.nvim",
   keys = {
@@ -35,6 +46,31 @@ return {
           -- 上游默认只在你**把滚轮放在面板上滚**时打开它；这里再给一个键盘入口（Alt+U）。
           -- 打开后：j/k、<C-u>/<C-d>、gg/G、/ 搜索都能用；按 i 回到实时 CLI。
           -- ⚠ opencode 被上游标记 native_scroll = true ⇒ 它没有 scrollback，要用它自己的滚动键。
+          -- 鼠标滚轮 → 翻页键（2026-09-25 用户要「滚轮滚动」）：
+          -- grok / codex 这类全屏 TUI **不支持鼠标**（实测 grok 二进制里 EnableMouseCapture /
+          -- MouseEvent / ScrollWheelUp 都是 0 处），滚轮只会被 nvim 拿去滚那个**空的**终端缓冲
+          -- （历史在备用屏幕里，终端没有历史）。而它们的 pager 认 PageUp/PageDown
+          -- （grok 自带文档：PageUp/PageDown 翻整页；Ctrl+J 在终端里等于回车、Ctrl+U 被输入行占用，
+          -- 所以只有 PageUp/PageDown 可靠）。这里把滚轮翻译成翻页键**发进 pty**。
+          -- mode 含 "t"：实测终端模式下映射也会触发 ⇒ 聊天时直接滚即可，不用先按 jk。
+          -- ⚠ 必须直接写 pty（nvim_chan_send），不能用 t:send()：后者走 nvim_put 模拟键入，
+          -- ESC 序列可能被当成"退出终端模式"而不是转发给程序。
+          wheel_up = {
+            "<ScrollWheelUp>",
+            function(t)
+              pty_send(t, "\x1b[5~") -- PageUp
+            end,
+            mode = "nt",
+            desc = "滚轮上滚（→ PageUp，TUI 自己翻页）",
+          },
+          wheel_down = {
+            "<ScrollWheelDown>",
+            function(t)
+              pty_send(t, "\x1b[6~") -- PageDown
+            end,
+            mode = "nt",
+            desc = "滚轮下滚（→ PageDown）",
+          },
           scrollback = {
             "<M-u>",
             function(t)
