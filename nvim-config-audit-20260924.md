@@ -9,7 +9,7 @@
 > **📌 最终状态（2026-09-24 收尾，第一轮）**：**结论汇总 / 已解决 / 未解决 / 事故 / 验收命令 / 回滚点 / 方法论坑** 见 **§19「最终状态与交接」**。
 > **📌 换会话/压缩后**：直接粘 **§25「新会话启动提示词」** 那段（自带目标、必读顺序、环境前提、不要重做的事、待办与验收命令）。
 >
-> **📌 最新（2026-09-25，压缩前）**：**工作台账在 §23**（已解决 40+ / 未解决 2 / 待你决定 6 / 尚未排查 11），**which-key 完善清单在 §24**（用户截图引出：上下文组不显示、可视模式无触发器、footer 英文、`gc`/`gcc` 已补中文）。压缩后从 §23.5 的顺序继续。
+> **📌 最新（2026-09-25 收尾）**：**工作台账 §23** —— ✅ 已解决 45+ / ⏳ 未解决 **0** / 🟡 待决定 6 项**已全部拍板并落地** / ❓ 尚未排查 11 项**已结 5 项**；**§24 which-key 清单** 4 条已全部收口（可视模式触发器已修、footer 英文已决定接受、六组保持上下文相关、`gc`/`gcc` 中文已补）。第九、十轮逐条记录见 **§26**（§26.11 决策落地 / §26.12 遗留清零 / §26.13 提交与清理 / §26.14 删 `<leader>sP`）；压缩后从 **§23.5** 继续。
 >
 > **📌📌📌📌📌📌 第六轮（2026-09-25，用户："再次全面检查并修复"）**：三条只读审查线（视觉一致性 / 正确性与兼容性 / 交互体验与性能）+ Lead 自查；已修：`:JavaBuildProjects`/`:JavaSetRuntime` 在非 Java 会话消失（改 lazy `cmd` 桩 + 友好守卫）、速查面板给 LSP/Java 小节补作用域提示、我上一轮的 `winhl` 单行化。还核对了 checkhealth 的良性噪音、文档↔配置双向一致（键位 116 个、命令 10 个）、blink/neotab 的 Tab 行为。见 **§22**。
 >
@@ -962,11 +962,11 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 | 其他正确性 | `J`/`K` 在非 modifiable 缓冲区不再抛 E5108、`<leader>dB/dL` Esc 不再建空断点、neo-tree `p` 恢复粘贴（隐藏文件用 `H`）、自动保存覆盖所有被改缓冲区、treesitter 前端解析器 + 下载节流、lemminx filetypes、`lang/init` 加载失败会报错 | §20 §22.5 |
 | 卫生 | lsp.log 清理、`.ui-shots` 归档、kitty 注释、Telescope/dressing 残留注释清理、速查面板补 `he/hh` + 滚动提示 + Java 命令 | §20 §22.5 |
 
-### 23.2 ⏳ 未解决（阻塞条件明确）
+### 23.2 ✅ 已清空（原「未解决」，两项均已结）
 
 | # | 项 | 阻塞/原因 |
 |---|---|---|
-| 1 | ~~`stylua --check .` 仍有 2 个文件不过~~ | ✅ **2026-09-25 已解决：41/41 通过（exit=0）**（补丁已应用，§26.11）。复核纠正（§26.2）：不是「你的 WIP 引入」——两个文件在 `git show HEAD:` 版本上**同样失败**（cheatsheet.lua 是历史欠账，blame 到 2026-09-02；java.lua 在 HEAD 失败于旧行、当前失败于 WIP 新增块）。所以 `git stash` 不会让它变绿，必须真跑一次 `stylua .`；注意它会改到你 WIP 的 4 处（java.lua:292 / 458-460 / 475-478 + cheatsheet.lua:149-156）。最小序列见 §26.2，当前 **39/41 通过** |
+| 1 | ~~`stylua --check .` 仍有 2 个文件不过~~ | ✅ **2026-09-25 已解决：41/41 通过（exit=0）**（补丁已应用，§26.11）。复核纠正（§26.2）：不是「你的 WIP 引入」——两个文件在 `git show HEAD:` 版本上**同样失败**（cheatsheet.lua 是历史欠账，blame 到 2026-09-02；java.lua 在 HEAD 失败于旧行、当前失败于 WIP 新增块）。所以 `git stash` 不会让它变绿，必须真跑一次 `stylua .`；注意它会改到你 WIP 的 4 处（java.lua:292 / 458-460 / 475-478 + cheatsheet.lua:149-156）。最小序列见 §26.2；**当前 41/41 通过** |
 | 2 | ~~未提交的改动~~ | ✅ **2026-09-25 已提交**（用户："开始提交"）：5 个提交 `6e2e29f`（移除已弃用插件）/ `438048f`（UI 观感）/ `c5ab8cf`（LSP·Java·DAP）/ `f1162b8`（core 键位与命令）/ `a9f1232`（审计文档）；提交后 `git status --porcelain` 为空（§26.13） |
 
 ### 23.3 ✅ 已决定（2026-09-25，用户："你推荐的来完成即可"）
@@ -980,7 +980,7 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 | 5 | `<leader>s` 语义混合 | **方案 A：窗口切分挪到 `<leader>v`** | ✅ 已改 4 个文件：`keymaps.lua:28-30`（`sh/sv`→`vh/vv`）、`whichkey.lua:34/36`（s=Spring Boot、新增 v=窗口：切分）、`cheatsheet.lua:38-39`、`~/md/nvim/nvim快捷键.md:37-38` |
 | 6 | 向导卡片粉系强调色 | **接受现状 + 修 4 处过期注释** | ✅ 已改 `spring_wizard.lua:2/409/416/1113`（纯注释，渲染零变化） |
 
-### 23.4 ❓ 尚未排查 / 未证实（"还没有查出来的"）
+### 23.4 ❓ 尚未排查 / 未证实（11 项**已结 5 项**，剩 6 项；下表保留原始描述 + 结项标注）
 
 | # | 项 | 现状 |
 |---|---|---|
@@ -996,13 +996,15 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 | 10 | alpha 按钮强调色 / bufferline 透明底是否要并入统一调色 | 属可选调色，未动 |
 | 11 | 观感是否合口味（picker 紧凑度、卡片配色、状态栏实底…） | 只有你能判断；不满意的地方按"哪一块 + 期望"告诉我 |
 
-### 23.5 建议的下一步顺序（2026-09-25 第九轮后更新，详见 §26）
+### 23.5 建议的下一步顺序（原计划已全部完成；新候选见本节末）
 
 1. ✅ **已完成**：格式化补丁已应用，`stylua --check .` → **41/41 通过（exit=0）**（§26.11）。
 2. ~~Java DAP + LSP 真机走查~~ → ✅ **已完成**（§26.3）。剩下的真机面是 §23.4 #4/#5（向导真建项目、`:JavaRun` 多场景）与探针 `session:request` 空数组的差异。
 3. ✅ **6 项已全部决定并落地**（1 维持 / 2 保持 / 3 不改 / 4 接受 / 5 方案 A / 6 接受+修注释）——证据包见 §26.4，落地清单见 §26.11。
 4. ✅ which-key 可视模式触发器已修复并真机 A/B 验证（§26.1）；`<leader>s` 拆分（§23.3 #5）已按方案 A 落地（`sh/sv` → `vh/vv`）。
-5. 新增可选项：是否在 nvim 侧补 `_java.reloadBundles.command` 的 handler 消掉 jdtls 启动 ERROR 噪音（§26.3）。
+5. ✅ 已完成：jdtls 的 `reloadBundles` ERROR 已在 nvim 侧挂 handler 消掉（§26.12，日志 ERROR 64 → 0）。
+
+**当前真正的候选（= §23.4 剩余 6 项）**：① 多实例并发压测项目历史（数据安全，价值最高）；② 大文件/大仓库性能压测；③ neo-tree 80 列「分隔符 1 列错位」复现；④ java-debug 空 logMessage 的上游行为（低价值，已用守卫绕开）；⑤⑥ alpha/bufferlist 调色与整体观感（需用户口味）。
 
 ---
 
@@ -1014,7 +1016,7 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 
 | 现象 | 结论 | 状态 |
 |---|---|---|
-| 弹窗里只有 12 个入口（e/F/j/q + b/d/G/f/h/s/t/w），没有 `c/r/J/m/o/R` | **不是漏写**：这 6 组只在 LSP/Java 缓冲区才有映射，which-key 只显示"当前缓冲区里真有子映射"的前缀。Java 缓冲区里它们会带着中文 desc 出现（`java.lua` 的 `d()` 都是中文） | 🟡 待你定是否常显（§23.3 #3） |
+| 弹窗里只有 12 个入口（e/F/j/q + b/d/G/f/h/s/t/w），没有 `c/r/J/m/o/R` | **不是漏写**：这 6 组只在 LSP/Java 缓冲区才有映射，which-key 只显示"当前缓冲区里真有子映射"的前缀。Java 缓冲区里它们会带着中文 desc 出现（`java.lua` 的 `d()` 都是中文） | ✅ **已决定保持上下文相关**（§23.3 #3，2026-09-25） |
 | 所有 `<leader>x` 映射是否都有中文 | **都有**（真机 dump 33 条 + lazy 桩 16 条，desc 全是中文；DAP/终端/格式化/springboot 都是） | ✅ |
 | 右下角 `Esc close / ⏎ back` 是英文 | which-key 源码里**硬编码**（`view.lua:442-448` 的 `{ key = "<esc>", desc = "close" }` / `{ key = "<bs>", desc = "back" }`），没有配置项 | 🟡 接受 or 打补丁 |
 | 内置注释键 `gc`/`gcc` 的 desc 是英文（Neovim 内置 "Toggle comment"） | spec 里原先没有这两条 ⇒ 将来若开启 g 弹窗会看到英文。**本轮已加中文覆盖**（`{ "gc", desc = "注释/取消注释（可视、可配 motion）" }`、`{ "gcc", ... }`） | ✅（本次修） |
@@ -1053,31 +1055,46 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 
 ```text
 继续维护本机 Neovim 配置（~/.config/nvim）。先按顺序读工作文档，再动手：
-1) ~/.config/nvim/nvim-config-audit-20260924.md 的 §25（本节）与 §23「工作台账」——§23 是唯一状态台账
-   （✅ 已解决 40+ / ⏳ 未解决 2 / 🟡 待你决定 6 / ❓ 尚未排查 11），§23.5 是建议顺序；
-2) 需要细节时再查 §22（第六轮全面复查：P1/P2/P3 逐条证据）、§21（:Projects 观感 + 项目历史三层保护）、
+1) ~/.config/nvim/nvim-config-audit-20260924.md 的 §25（本节）与 §23「工作台账」——§23 是唯一状态台账；
+   最近两轮的逐条落地记录在 §26（§26.11 六项决策落地 / §26.12 遗留清零 / §26.13 提交与清理 / §26.14 删 <leader>sP）。
+2) 需要细节时再查 §22（第六轮全面复查 P1/P2/P3 逐条证据）、§21（:Projects 观感 + 项目历史三层保护）、
    §19（第一轮交接）、§24（which-key 清单）、§22.4/§19.7（方法论坑，必看，能省很多时间）。
 
-环境前提（别重新发现一遍）：
+当前状态（2026-09-25 收尾，别重新发现一遍）：
+- 配置已全部提交 git（master），工作区干净；~/md/nvim 的文档改动也已在 ~/md 仓库提交（只提交了 nvim/ 子目录）。
 - Neovim 0.12.5 + lazy.nvim，插件 35 个（telescope/dressing/Comment.nvim 已删；UI 全走 snacks）。
-- 所有 picker 用紧凑预设 picker_compact（全局 layout.preset）；皮肤 soft（灰边 #7f849c + 蓝标题 #89b4fa +
-  实底 #1e1e2e），:PickerSkin pink 可切洋红；FloatBorder/FloatTitle/NormalFloat 已全局统一。
-- 项目历史有"只追加副本 + 并集 + append 回填"三层保护（~/.local/state/nvim/project-history.list），
-  插件历史被清空也能自愈 —— 可以放心跑 nvim 探针。
-- 备份/快照都在 ~/backups/nvim-config-round{3..8}-*/（含 patches、预览图、pty 出图工具）。
-  ⚠ /tmp 会被系统清空：pty_size.py / render_term.py / dump_text.py 在快照目录里，需要时复制出来用
-  （pyte 在 /tmp/termvenv，丢了就 python3 -m venv + HTTPS_PROXY=http://127.0.0.1:7890 pip install pyte）。
+- picker 用 picker_compact 预设 + soft 皮肤（灰边 #7f849c + 蓝标题 #89b4fa + 实底 #1e1e2e；:PickerSkin pink 可切）；
+  FloatBorder/FloatTitle/NormalFloat 已全局统一；<leader>hk 速查面板已补齐（选择器通用键、文件树整段、命令段都在）。
+- 窗口切分在 <leader>v（vh/vv），<leader>s 是纯 Spring；<leader>sP（原版向导）与它的 cmd 桩已删除；
+  which-key triggers = mode { "n", "v" }（Java 缓冲区可视模式也会弹）；右下角英文 footer 已决定接受。
+- Java 真机面已全部验证（证据见 §26.3 / §26.12）：LSP（hover/definition/references/codeAction/整理 import/跨包导航）、
+  <leader>Jt 终端跑 mvn test、<leader>Jg/JG 测试调试、DAP（断点→变量/调用栈/步进/终止，截图在归档里）、
+  向导真建项目（start.spring.io）、:JavaRun 三种 package 场景。一次性测试工程已清理，需要时重建即可。
+- 已修：:e/:e! 后 jdtls 掉 attach（start_jdtls 会重新 buf_attach_client）、
+  jdtls 日志的 reloadBundles ERROR（client config 挂 workspace/executeClientCommand handler）。
+- 项目历史有"只追加副本 + 并集 + append 回填"三层保护（~/.local/state/nvim/project-history.list，现约 19 行），
+  可以放心跑 nvim 探针。
+- 备份/快照在 ~/backups/nvim-config-round{3..11}-*/；pty 抓屏工具在 ~/backups/nvim-config-round7-20260925-092204/
+  （pty_size.py / render_term.py）；两轮探针的完整证据归档在 round11 快照的 probe-evidence/ 与 probe-evidence.tar.gz。
+  ⚠ /tmp 会被清空：pyte 需要时重建 —— python3 -m venv /tmp/termvenv &&
+  HTTPS_PROXY=http://127.0.0.1:7890 /tmp/termvenv/bin/pip install pyte pillow。
+- 探针方法论必读（能省几个小时）：nvim-troubleshooting 技能 §14 —— jdtls attach ≠ 语义就绪、
+  别用 server_capabilities 静态字段做门控、Java 缓冲区同时挂 jdtls+spring-boot 且 buf_request 是扇出、
+  vim.wait 不处理按键、-c luafile 里的未捕获错误会静默杀死探针、dap.breakpoints 是懒加载字段、
+  长消息会 hit-enter 冻住探针、toggleterm.get 不存在、stylua 副本实验要带 --config-path。
 
-不要重做的事（已核实无问题，见 §22.2 / §24.1）：启动零报错、0 弃用 API、checkhealth 里的告警都是良性噪音
-（已禁用 snacks 模块的工具检查 / headless 无 UIEnter / vim.pack lockfile / 系统可选依赖）、
-文档↔配置键位与命令双向一致、picker 与速查面板配色一致、终端三键/自动保存/项目切换已实测。
+不要重做的事（已核实无问题）：启动零报错、0 弃用 API、checkhealth 里的告警全是良性噪音
+（snacks 模块工具检查 / headless 无 UIEnter / vim.pack lockfile / 系统可选依赖）、文档↔配置键位与命令双向一致、
+stylua --check . 41/41、picker 与速查面板配色一致、终端三键/自动保存/项目切换已实测。
 
-用户偏好：中文回答、给证据（file:line 或命令输出）、动配置前先备份、**不要碰他未提交的 2 个 WIP 文件**
-（lua/core/cheatsheet.lua、lua/plugins/lang/java.lua）也不要替他 git commit；观感类改动先说明影响再动手。
+用户偏好：中文回答、给证据（file:line 或命令输出）、动配置前先备份、改完同步 ~/md/nvim
+（那是独立 git 仓库，只提交 nvim/ 子目录，别碰他其它未提交文件）；提交粒度先问他，同意后再 commit。
 
-先做这些（§23.5）：① 若 WIP 已提交，跑 stylua . 收尾（期望 stylua --check . 0 失败）；② 有 Java 工程的话
-做 DAP + LSP 真机走查（§23.4 #2/#3）；③ 把 §23.3 的 6 个待决定项过一遍；④ 想继续挖就看 §24.2 的可视模式触发器。
-验收命令见 §23.5 与 §22.5 的清单（启动 / stylua / 插件 35 / 项目历史 17 行 / DSH verify.sh 13 通过）。
+还没做的（§23.4 剩余 6 项，按价值）：① 多实例并发压测项目历史（数据安全，三层保护只在单实例验证过）；
+② 大文件/大仓库性能压测（tree-sitter / grep / jdtls 索引）；③ neo-tree 80 列下"分隔符 1 列错位"复现；
+④ java-debug 对空 logMessage 的上游行为；⑤⑥ alpha 按钮强调色 / bufferline 透明底 与整体观感（要他定）。
+验收命令：nvim --headless '+checkhealth' '+write! /tmp/h.txt' '+qa'；stylua --check .（期望 41/41）；
+ls -d ~/.local/share/nvim/lazy/*/ | wc -l（期望 35）；wc -l ~/.local/state/nvim/project-history.list。
 ```
 
 ### 25.1 什么时候该换新会话（结论）
@@ -1330,7 +1347,7 @@ git diff --stat                                              # 看它到底改�
 | 插件 | lazy 目录 35 == lazy-lock.json 35 |
 | 启动 | 44–56 ms（headless，抖动 ~10ms） |
 | 项目历史 | 18 行（探针跑动 +1，三层保护工作正常） |
-| 本轮配置改动 | 仅 `lua/plugins/whichkey.lua`（triggers）；stylua 通过、`nvim --headless '+qa'` exit 0。另改了 `~/md/nvim` 3 处（§26.9），并备好 2 个待你点头的补丁（§26.10） |
+| 本轮配置改动 | 仅 `lua/plugins/whichkey.lua`（triggers）；stylua 通过、`nvim --headless '+qa'` exit 0。另改了 `~/md/nvim` 3 处（§26.9），两个补丁已于 §26.11 应用 |
 
 **下一步（按价值排序）**：① 跑一次 `stylua .` 收尾（§26.2）；② 回一句定 §23.3 六项（§26.4）；③ 想看真机就试 §23.4 #4/#5（向导真建项目、`:JavaRun` 多场景）；④ 可选：消掉 jdtls 的 `reloadBundles` ERROR 噪音、查 §26.3 的 `session:request` 差异。
 
@@ -1428,7 +1445,7 @@ hover            → Empty hover response
 | 配置加载 | `nvim --headless '+qa'` exit 0；`checkhealth` exit 0 |
 | 回滚 | `tar -xzf ~/backups/nvim-config-round11-20260925-123023/nvim-config-round11.tar.gz -C ~/.config` |
 
-**遗留（未做）**：cheatsheet 的 11 键 + 10 命令文档漂移（§26.5，需逐条补内容）；jdtls `reloadBundles` ERROR 噪音消音；§23.4 #4/#5（向导真建项目、`:JavaRun` 多场景）。
+**当时列的遗留（已在 §26.12 全部做掉）**：cheatsheet 11 键 + 10 命令文档漂移、jdtls `reloadBundles` ERROR 噪音、§23.4 #4/#5。
 
 ### 26.12 ✅ 遗留四项清零（2026-09-25 续，用户："不改吗？为什么要留着"）
 
