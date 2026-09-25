@@ -10,7 +10,10 @@
 return {
   {
     "JavaHello/spring-boot.nvim",
-    lazy = false,
+    -- 懒加载（原为 lazy = false，历史遗留）：lazy = false 让下面的 ft 变成死配置，
+    -- 并把 nvim-jdtls / DAP 一起拖进启动期。:SpringBoot 命令由本插件 setup() 注册，
+    -- 所以用 cmd 声明——启动时命令就存在，但只有真正调用时才加载插件。
+    cmd = { "SpringBoot" },
     ft = { "java", "yaml", "jproperties" },
     dependencies = {
       "mfussenegger/nvim-jdtls",
@@ -21,7 +24,13 @@ return {
       require("spring_boot").setup(opts)
     end,
     keys = {
-      { "<leader>sp", function() require("core.spring_wizard").create() end, desc = "Spring Boot 项目向导（可搜索选择）" },
+      {
+        "<leader>sp",
+        function()
+          require("core.spring_wizard").create()
+        end,
+        desc = "Spring Boot 项目向导（可搜索选择）",
+      },
       { "<leader>sP", "<cmd>SpringBootNewProject<cr>", desc = "原版向导（不推荐：Boot 4 版本号有 bug）" },
     },
   },
@@ -29,15 +38,42 @@ return {
   {
     "elmcgill/springboot-nvim",
     ft = { "java" },
+    -- :SpringBootNewProject 由本插件注册，而 <leader>sP 是全局键（任何缓冲区可按）：
+    -- 不声明 cmd 的话，在非 java 缓冲区按 <leader>sP 会 E492（命令尚未注册）。
+    cmd = { "SpringBootNewProject" },
     dependencies = {
       "neovim/nvim-lspconfig",
       "mfussenegger/nvim-jdtls",
     },
     keys = {
-      { "<leader>Gc", function() require("springboot-nvim").generate_class() end, desc = "生成: Java Class" },
-      { "<leader>Gi", function() require("springboot-nvim").generate_interface() end, desc = "生成: Java Interface" },
-      { "<leader>Ge", function() require("springboot-nvim").generate_enum() end, desc = "生成: Java Enum" },
-      { "<leader>Gr", function() require("springboot-nvim").generate_record() end, desc = "生成: Java Record" },
+      {
+        "<leader>Gc",
+        function()
+          require("springboot-nvim").generate_class()
+        end,
+        desc = "生成: Java Class",
+      },
+      {
+        "<leader>Gi",
+        function()
+          require("springboot-nvim").generate_interface()
+        end,
+        desc = "生成: Java Interface",
+      },
+      {
+        "<leader>Ge",
+        function()
+          require("springboot-nvim").generate_enum()
+        end,
+        desc = "生成: Java Enum",
+      },
+      {
+        "<leader>Gr",
+        function()
+          require("springboot-nvim").generate_record()
+        end,
+        desc = "生成: Java Record",
+      },
     },
     config = function()
       local springboot = require("springboot-nvim")

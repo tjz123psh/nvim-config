@@ -20,9 +20,11 @@ return {
       ["<S-Tab>"] = { "snippet_backward", "fallback" }, -- 跳到上一片段占位符
       ["<C-n>"] = { "select_next", "fallback" }, -- Ctrl+n 选择下一项
       ["<C-p>"] = { "select_prev", "fallback" }, -- Ctrl+p 选择上一项
-      ["<C-e>"] = { "hide" }, -- 关闭补全
-      ["<C-u>"] = { "scroll_documentation_up" }, -- 文档上翻
-      ["<C-d>"] = { "scroll_documentation_down" }, -- 文档下翻
+      -- 这三个键必须带 fallback：不加时 blink 在菜单/文档窗未打开时直接吞键，
+      -- 插入模式的 <C-e>/<C-u>/<C-d> 内置行为全部失效（实测 A<C-u><Esc> 后 buffer 逐字不变）
+      ["<C-e>"] = { "hide", "fallback" }, -- 关闭补全
+      ["<C-u>"] = { "scroll_documentation_up", "fallback" }, -- 文档上翻
+      ["<C-d>"] = { "scroll_documentation_down", "fallback" }, -- 文档下翻
     },
 
     -- 补全数据来源
@@ -35,7 +37,11 @@ return {
 
     -- 弹窗外观
     completion = {
-      documentation = { auto_show = true, window = { border = "rounded" } },
+      documentation = {
+        auto_show = true,
+        auto_show_delay_ms = 800, -- 上游默认 500ms，小窗里一停就弹会挡代码
+        window = { border = "rounded", max_height = 12, desired_min_width = 40 },
+      },
       menu = {
         border = "rounded",
         draw = {

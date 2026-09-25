@@ -67,7 +67,11 @@ return {
       jsonls = {},
       yamlls = {},
       marksman = {},
-      lemminx = {}, -- XML / pom.xml
+      -- XML / pom.xml。必须显式给 filetypes：nvim-lspconfig 默认表里含 'xsl'，
+      -- 而 Neovim 的 .xsl/.xslt 都识别成 filetype xslt（runtime/lua/vim/filetype.lua:1463），
+      -- 'xsl' 这个"扩展名当 filetype"的条目会让 :checkhealth vim.lsp 常驻一条
+      -- "Unknown filetype 'xsl'"（2026-09-24 实测，去掉后警告消失）。
+      lemminx = { filetypes = { "xml", "xsd", "xslt", "svg" } },
     },
 
     -- 当 LSP 附加到某个缓冲区时，注册对应的快捷键

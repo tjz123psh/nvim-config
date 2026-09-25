@@ -53,7 +53,8 @@ return {
             { id = "stacks", size = 0.25 },
             { id = "watches", size = 0.25 },
           },
-          size = 45,
+          -- 45 是 200+ 列下的舒适值；窄终端（80 列）按 32% 收缩，最少 28 列
+          size = math.max(28, math.min(45, math.floor(vim.o.columns * 0.32))),
           position = "right",
         },
         {
@@ -83,11 +84,23 @@ return {
     vim.keymap.set("n", "<leader>db", function()
       dap.list_breakpoints(true)
     end, { desc = "断点列表" })
+    -- ⚠ vim.fn.input 取消(Esc)返回 ""，而 "" 在 Lua 里为真 ⇒ 旧写法在取消时照样设出一个
+    --   condition/logMessage 为空的"假"断点（2026-09-25 审查实测）。空输入直接不建并提示。
     vim.keymap.set("n", "<leader>dB", function()
-      dap.set_breakpoint(vim.fn.input("断点条件: "))
+      local cond = vim.fn.input("断点条件（Esc 取消）: ")
+      if cond == "" then
+        vim.notify("已取消：条件为空，不设置条件断点", vim.log.levels.INFO)
+        return
+      end
+      dap.set_breakpoint(cond)
     end, { desc = "条件断点" })
     vim.keymap.set("n", "<leader>dL", function()
-      dap.set_breakpoint(nil, nil, vim.fn.input("日志: "))
+      local log = vim.fn.input("日志（Esc 取消）: ")
+      if log == "" then
+        vim.notify("已取消：日志为空，不设置日志断点", vim.log.levels.INFO)
+        return
+      end
+      dap.set_breakpoint(nil, nil, log)
     end, { desc = "日志断点" })
     vim.keymap.set("n", "<leader>dC", dap.clear_breakpoints, { desc = "清除所有断点" })
     vim.keymap.set("n", "<F5>", dap.continue, { desc = "继续执行" })

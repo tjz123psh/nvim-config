@@ -6,40 +6,27 @@
 
 local specs = {}
 
-local ok_cpp, cpp = pcall(require, "plugins.lang.cpp")
-if not ok_cpp then
-  cpp = {}
-end
-local ok_java, java = pcall(require, "plugins.lang.java")
-if not ok_java then
-  java = {}
-end
-local ok_go, go = pcall(require, "plugins.lang.go")
-if not ok_go then
-  go = {}
-end
-local ok_springboot, springboot = pcall(require, "plugins.lang.springboot")
-if not ok_springboot then
-  springboot = {}
-end
-local ok_rust, rust = pcall(require, "plugins.lang.rust")
-if not ok_rust then
-  rust = {}
+-- 单个语言配置加载失败必须出声：旧实现只有 pcall 没有分支，
+-- 整门语言的 spec（插件、LSP、键位）会静默消失，只剩"某功能就是不生效"。
+local function load_lang(name)
+  local ok, mod = pcall(require, "plugins.lang." .. name)
+  if not ok then
+    vim.notify(
+      ("语言配置 plugins/lang/%s.lua 加载失败，该语言相关插件/键位将不可用：%s"):format(
+        name,
+        mod
+      ),
+      vim.log.levels.ERROR
+    )
+    return {}
+  end
+  return mod
 end
 
-for _, spec in ipairs(cpp) do
-  table.insert(specs, spec)
+for _, name in ipairs({ "cpp", "java", "go", "springboot", "rust" }) do
+  for _, spec in ipairs(load_lang(name)) do
+    table.insert(specs, spec)
+  end
 end
-for _, spec in ipairs(java) do
-  table.insert(specs, spec)
-end
-for _, spec in ipairs(go) do
-  table.insert(specs, spec)
-end
-for _, spec in ipairs(springboot) do
-  table.insert(specs, spec)
-end
-for _, spec in ipairs(rust) do
-  table.insert(specs, spec)
-end
+
 return specs

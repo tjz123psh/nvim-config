@@ -22,6 +22,9 @@ return {
   {
     "mfussenegger/nvim-jdtls",
     ft = { "java" },
+    -- :JavaBuildProjects / :JavaSetRuntime 由本插件的 config 注册；不声明 cmd 的话，
+    -- 非 Java 会话里输这两个命令会 E492（文档/速查里都写了它们，2026-09-25 全面检查发现）。
+    cmd = { "JavaBuildProjects", "JavaSetRuntime" },
     opts = {
       cmd = { vim.fn.stdpath("data") .. "/mason/bin/jdtls" },
       -- root_dir 不用在 opts 里设函数——vim.lsp.start 不解析函数式 root_dir
@@ -46,6 +49,23 @@ return {
             importOrder = { "java", "javax", "jakarta", "com", "org", "" },
           },
           signatureHelp = { descriptionEnabled = true },
+          -- :JavaSetRuntime（IDEA 的 Project SDK）依赖这里：jdtls.set_runtime() 在
+          -- runtimes 为空时只会 warning、什么都不做。列出本机真实存在的 JDK，
+          -- 第一个作为默认；路径不存在就跳过（换机器/换发行版不会报错）。
+          configuration = {
+            runtimes = (function()
+              local found = {}
+              for _, c in ipairs({
+                { name = "JavaSE-21", path = "/usr/lib/jvm/java-21-openjdk" },
+                { name = "JavaSE-1.8", path = "/usr/lib/jvm/java-8-openjdk" },
+              }) do
+                if vim.fn.isdirectory(c.path) == 1 then
+                  found[#found + 1] = { name = c.name, path = c.path, default = (#found == 0) }
+                end
+              end
+              return found
+            end)(),
+          },
         },
       },
       init_options = {
@@ -60,6 +80,14 @@ return {
       end
 
       -- 将 java-debug/java-test JAR 作为 bundles 传给 jdtls（必须, 不能独立 java -jar 启动）
+      -- java-test 的 server 目录里混着两个非 OSGi 的普通 jar（test runner、jacoco agent），
+      -- 它们没有 Bundle-SymbolicName，会让 jdt.ls 的 bundle 列表整体加载失败，必须排除
+      local non_bundles = {
+        "runner%-jar%-with%-dependencies",
+        "jacocoagent",
+        "org%.objectweb%.asm",
+      }
+      local seen_bundles = {}
       local bundle_patterns = {
         vim.fn.stdpath("data")
           .. "/mason/packages/java-debug-adapter/extension/server/com.microsoft.java.debug.plugin-*.jar",
@@ -67,8 +95,18 @@ return {
       }
       for _, pattern in ipairs(bundle_patterns) do
         local jars = vim.fn.glob(pattern, false, true)
-        if #jars > 0 then
-          vim.list_extend(opts.init_options.bundles, jars)
+        for _, jar in ipairs(jars) do
+          local skip = false
+          for _, needle in ipairs(non_bundles) do
+            if jar:match(needle) then
+              skip = true
+              break
+            end
+          end
+          if not skip and not seen_bundles[jar] and vim.uv.fs_stat(jar) then
+            seen_bundles[jar] = true
+            table.insert(opts.init_options.bundles, jar)
+          end
         end
       end
 
@@ -106,6 +144,162 @@ return {
       local jdtls_dap = require("jdtls.dap")
       local dap = require("dap")
       local on_attach = require("core.lsp_on_attach")
+
+      ------------------------------------------------------------------
+      -- 字段/方法多选：Tab 勾选、CR 确认、Esc 取消
+      ------------------------------------------------------------------
+      -- 上游 jdtls.ui.pick_many 用 vim.fn.input() 收编号，有三个问题：
+      --   1. Esc 与空回车在 input() 层等价（都是 ""）→ 没有取消通道；
+      --   2. 越界编号（如 3 项时输 9）直接抛 Lua 错误，整个 code action 崩掉；
+      --   3. 编号输入要用户自己数行，交互差。
+      -- 这里换成 snacks picker。pick_many 是同步函数、调用方直接取返回值，
+      -- 而 picker 只能异步回调，所以必须"协程让出 + 回调 resume"：
+      -- jdtls 的 code action 都跑在 jdtls.async.run 的协程里，可以安全 yield；
+      -- 万一不在协程里（或 picker 创建失败）就回退到上游 input() 版。
+      local ok_ui, jdtls_ui = pcall(require, "jdtls.ui")
+      local ok_snacks, Snacks = pcall(require, "snacks")
+      if ok_ui and ok_snacks and not jdtls_ui._snacks_pick_many then
+        local original_pick_many = jdtls_ui.pick_many
+        jdtls_ui._snacks_pick_many = true
+        jdtls_ui.pick_many = function(items, prompt, label_f, pick_opts)
+          if type(items) ~= "table" or #items == 0 then
+            return {}
+          end
+          local co, is_main = coroutine.running()
+          if not co or is_main then
+            return original_pick_many(items, prompt, label_f, pick_opts) -- 主线程兜底
+          end
+          label_f = label_f or tostring
+          pick_opts = pick_opts or {}
+          local is_selected = pick_opts.is_selected or function()
+            return false
+          end
+
+          local finder_items = {}
+          for idx, item in ipairs(items) do
+            finder_items[idx] = { idx = idx, item = item, text = label_f(item) }
+          end
+
+          local finished = false
+          local function finish(value)
+            if finished then
+              return
+            end
+            finished = true
+            if coroutine.status(co) == "suspended" then
+              vim.schedule(function()
+                -- resume 的返回值不能丢：协程里后续抛的错否则会静默消失
+                local ok_resume, err_resume = coroutine.resume(co, value)
+                if not ok_resume then
+                  vim.notify("jdtls 多选弹窗回调出错：" .. tostring(err_resume), vim.log.levels.ERROR)
+                end
+              end)
+            end
+          end
+
+          local ok_pick, picker = pcall(Snacks.picker.pick, {
+            source = "jdtls-pick-many", -- 独立 source：避开 snacks 同 source dedupe
+            title = (tostring(prompt or "选择"):gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1")),
+            items = finder_items,
+            filter = {},
+            -- 布局：default 预设会按 width 0.8 / min_width 120 / height 0.8 预留空间（预览窗又被
+            -- 我们隐藏）⇒ 3 个选项也要占 80% 屏幕的大空框。改用紧凑预设，并可用变量实时切换：
+            --   :let g:jdtls_pick_layout = 'select'   （可选 default/vscode/dropdown/select/ivy/vertical）
+            --   :let g:jdtls_pick_backdrop = 0        （0 = 关闭背景变暗）
+            -- 默认用自定义预设 picker_compact（在 snacks.lua 里注册）：居中紧凑、随内容变高，
+            -- 复刻 fzf-lua 那种小框观感。想对比内置预设：
+            --   :let g:jdtls_pick_layout = 'ivy'  （picker_compact/default/vscode/dropdown/select/ivy/vertical）
+            layout = {
+              preset = vim.g.jdtls_pick_layout or "picker_compact",
+              preview = false, -- items 不是文件，预览窗只会渲染 "error: Item has no file"
+              backdrop = tonumber(vim.g.jdtls_pick_backdrop) or 60, -- 背景变暗，浮窗更聚焦
+            },
+            formatters = { selected = { show_always = true, unselected = true } }, -- ○/● 勾选列
+            format = function(item)
+              return { { label_f(item.item or item) } }
+            end,
+            -- ⚠ snacks 对 keys 是整体替换：这里必须从 defaults 拷一份再 merge，
+            --   否则会把 <CR> 确认 / <Tab> 多选 / <Esc> 取消这些默认键一起干掉
+            win = (function()
+              local dwin = require("snacks.picker.config.defaults").defaults.win
+              return {
+                input = {
+                  keys = vim.tbl_extend("force", vim.deepcopy(dwin.input.keys), {
+                    ["<Esc>"] = { "cancel", mode = { "n", "i" } },
+                  }),
+                },
+                list = {
+                  keys = vim.tbl_extend("force", vim.deepcopy(dwin.list.keys), {
+                    ["<Space>"] = { "toggle_item", mode = { "n", "x" } },
+                  }),
+                },
+              }
+            end)(),
+            actions = {
+              -- ⚠ 不能用 pk.list:toggle()：本机 snacks 的 List 没有 toggle 方法
+              --   （2026-09-25 审查实测 type(list.toggle)=nil）⇒ 按 <Space> 直接报错。
+              --   list:select() 内部先 unselect，本身就是勾选/取消的切换语义。
+              toggle_item = function(pk)
+                pk.list:select()
+              end,
+              confirm = function(pk)
+                local sel = pk.list and pk.list.selected or {}
+                local ret = {}
+                for _, it in ipairs(sel) do
+                  if it.item then
+                    ret[#ret + 1] = it.item
+                  end
+                end
+                finish(ret)
+                pcall(function()
+                  pk:close()
+                end)
+              end,
+            },
+            -- is_selected 预勾选（构造器已有的字段默认勾上）
+            -- 用 snacks 自己的 set_selected：逐个 list:toggle 会与首帧渲染抢状态，
+            -- 表现为「预勾选之后按 Tab 不再追加勾选」（继承自归档实现的已知问题）。
+            on_show = function(pk)
+              local tries = 0
+              local function mark()
+                tries = tries + 1
+                if #pk.list.items == 0 and tries < 25 then
+                  return vim.defer_fn(mark, 20)
+                end
+                local pre = {}
+                for _, it in ipairs(pk.list.items) do
+                  if it.item and is_selected(it.item) then
+                    pre[#pre + 1] = it
+                  end
+                end
+                if #pre > 0 then
+                  pcall(function()
+                    pk.list:set_selected(pre)
+                    if pk.list.render then
+                      pk.list:render()
+                    end
+                  end)
+                end
+              end
+              mark()
+            end,
+            on_close = function()
+              finish(nil) -- Esc / <C-c> → nil = 取消
+            end,
+          })
+          if not ok_pick or type(picker) ~= "table" then
+            -- 回退要发声：布局写错时 snacks 会报错，静默回退会让"样式没生效"完全看不出原因
+            vim.notify(
+              "jdtls 多选弹窗启动失败，已回退到上游输入框：" .. tostring(picker),
+              vim.log.levels.WARN
+            )
+            return original_pick_many(items, prompt, label_f, pick_opts)
+          end
+          -- ⚠ 上游 nvim-jdtls 的 pick_many 契约是"永远返回 table"（取消时是空表），
+          --   返回 nil 会让调用方 #selected 直接报错（jdtls.lua:782）。Esc 取消 → 空表。
+          return coroutine.yield() or {}
+        end
+      end
 
       -- 解析 root_dir 为字符串（vim.lsp.start 直接传值，不支持函数）
       local resolve_root = function(bufnr)
@@ -164,8 +358,8 @@ return {
 
         local cmdline = bin .. " " .. task .. (extra or "")
         -- exec(cmd, num, size, dir, direction, ...) 是位置参数，不是 table
-        -- 用 2 号终端，避免和 <leader>tt 的 1 号交互终端抢位置
-        require("toggleterm").exec(cmdline, 2, nil, root, "horizontal")
+        -- 用 2 号终端，避免和 <leader>tt 的 1 号交互终端抢位置；保留终端焦点查看结果
+        require("toggleterm").exec(cmdline, 2, nil, root, "horizontal", "Java 测试", false)
       end
 
       ------------------------------------------------------------------
@@ -176,7 +370,7 @@ return {
           dap.run(configs[1])
           return
         end
-        -- dressing.nvim 会把 vim.ui.select 接管成漂亮的列表
+        -- vim.ui.select 现在由 snacks picker 接管（全机唯一的选择器）
         vim.ui.select(configs, {
           prompt = "选择要调试的主类",
           format_item = function(c)
@@ -218,7 +412,14 @@ return {
                   "未发现主类。确认：1) 类里有 public static void main 2) :JavaBuildProjects 已跑过 3) jdtls 导入完成",
                   vim.log.levels.ERROR
                 )
-                local main_class = vim.fn.input("主类名: ", vim.fn.expand("%:t:r"))
+                -- ⚠ 默认值不能塞进 vim.fn.input 的第二参：那样是"预填"，用户直接打字会追加成
+                --   DemoApplicationcom.example.App（2026-09-25 审查实测）。默认值只写进提示，
+                --   空输入才回退到它（向导 spring_wizard 早就是这么做的）。
+                local default_class = vim.fn.expand("%:t:r")
+                local main_class = vim.fn.input("主类名 [" .. default_class .. "]: ")
+                if main_class == "" then
+                  main_class = default_class
+                end
                 if main_class and #main_class > 0 then
                   dap.run({
                     type = "java",
@@ -232,6 +433,47 @@ return {
           })
         end
         attempt(1)
+      end
+
+      ------------------------------------------------------------------
+      -- 终端测试：运行测试不进入 DAP 调试界面，结果保留在终端中
+      ------------------------------------------------------------------
+      local function current_test_selector(include_method)
+        local bufnr = vim.api.nvim_get_current_buf()
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, true)
+        local package_name
+        local class_name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t:r")
+        local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+
+        for _, line in ipairs(lines) do
+          package_name = line:match("^%s*package%s+([%w_%.]+)%s*;") or package_name
+          if package_name then
+            break
+          end
+        end
+
+        local selector = package_name and (package_name .. "." .. class_name) or class_name
+        if not include_method then
+          return selector
+        end
+
+        for index = cursor_line, 1, -1 do
+          local method_name = lines[index]:match("^%s*[%w_%s<>%[%],%.%?]+%s+([%w_]+)%s*%([^;]*%)%s*{%s*$")
+          if method_name then
+            return selector .. "#" .. method_name
+          end
+        end
+
+        vim.notify("光标附近未找到 Java 测试方法", vim.log.levels.WARN)
+        return nil
+      end
+
+      local function run_java_test(include_method)
+        local selector = current_test_selector(include_method)
+        if not selector then
+          return
+        end
+        run_build("test -Dtest=" .. selector, "test --tests " .. selector:gsub("#", "."))
       end
 
       ------------------------------------------------------------------
@@ -252,18 +494,43 @@ return {
           jdtls_dap.setup_dap_main_class_configs({ verbose = true })
         end, d("Java: 重新扫描主类"))
 
-        -- 测试（依赖 java-test bundle）
-        vim.keymap.set("n", "<leader>Jt", jdtls.test_nearest_method, d("Java: 运行光标处测试方法"))
-        vim.keymap.set("n", "<leader>JT", jdtls.test_class, d("Java: 运行当前测试类"))
+        -- 测试默认走 Maven/Gradle 终端，结果不会随着 DAP 面板关闭而消失
+        vim.keymap.set("n", "<leader>Jt", function()
+          run_java_test(true)
+        end, d("Java: 终端运行光标处测试方法"))
+        vim.keymap.set("n", "<leader>JT", function()
+          run_java_test(false)
+        end, d("Java: 终端运行当前测试类"))
+
+        -- 需要断点、变量和调用栈时，显式使用 Java 测试调试
+        vim.keymap.set("n", "<leader>Jg", jdtls.test_nearest_method, d("Java: 调试光标处测试方法"))
+        vim.keymap.set("n", "<leader>JG", jdtls.test_class, d("Java: 调试当前测试类"))
 
         -- 重构（IDEA 的 Extract…）
-        vim.keymap.set("n", "<leader>Rv", jdtls.extract_variable, d("重构: 提取变量"))
+        -- ⚠ 必须同时给 x 模式映射：nvim-jdtls 只在 opts.visual=true 时按可视标记取范围，
+        --   而 {Visual}<leader>Rv 在没有 x 模式映射时会落到 Vim 内置的 R（删行进替换模式）
+        --   ⇒ 选区被删掉、后面那个 "v" 还会被当文本写进文件（2026-09-25 审查实测）。
+        vim.keymap.set("x", "<leader>Rv", function()
+          jdtls.extract_variable(true)
+        end, d("重构: 提取变量（选区）"))
+        vim.keymap.set("x", "<leader>RV", function()
+          jdtls.extract_variable_all(true)
+        end, d("重构: 提取所有重复表达式为变量（选区）"))
+        vim.keymap.set("x", "<leader>Rc", function()
+          jdtls.extract_constant(true)
+        end, d("重构: 提取常量（选区）"))
+        vim.keymap.set("x", "<leader>Rm", function()
+          jdtls.extract_method(true)
+        end, d("重构: 提取方法（选区）"))
+        -- n 模式保留「光标处表达式」语义
+        vim.keymap.set("n", "<leader>Rv", jdtls.extract_variable, d("重构: 提取变量（光标处）"))
         vim.keymap.set("n", "<leader>RV", jdtls.extract_variable_all, d("重构: 提取所有重复表达式为变量"))
         vim.keymap.set("n", "<leader>Rc", jdtls.extract_constant, d("重构: 提取常量"))
         vim.keymap.set("n", "<leader>Rm", jdtls.extract_method, d("重构: 提取方法"))
 
         -- 父类/接口实现跳转（IDEA 的 Ctrl+U）
-        vim.keymap.set("n", "gU", jdtls.super_implementation, d("跳转到父类/接口实现"))
+        -- 用 gA 而不是 gU：gU 是内置的「转大写」操作符，覆盖它会让 Java 里 gU{motion} 失效
+        vim.keymap.set("n", "gA", jdtls.super_implementation, d("跳转到父类/接口实现"))
 
         -- Spring Boot
         vim.keymap.set("n", "<leader>sr", function()
@@ -295,15 +562,31 @@ return {
       ------------------------------------------------------------------
       -- 全局命令（不依赖当前 buffer 是否已触发 FileType）
       ------------------------------------------------------------------
-      vim.api.nvim_create_user_command("JavaBuildProjects", jdtls.build_projects,
-        { desc = "jdtls: 重新导入并构建项目（改了 pom.xml 依赖后用）" })
+      local function jdtls_ready()
+        if #vim.lsp.get_clients({ name = "jdtls" }) == 0 then
+          vim.notify("需要先打开一个 Java 项目（jdtls 尚未附加到任何缓冲区）", vim.log.levels.WARN)
+          return false
+        end
+        return true
+      end
+
+      vim.api.nvim_create_user_command("JavaBuildProjects", function()
+        if jdtls_ready() then
+          jdtls.build_projects()
+        end
+      end, { desc = "jdtls: 重新导入并构建项目（改了 pom.xml 依赖后用）" })
 
       vim.api.nvim_create_user_command("JavaSetRuntime", function(p)
-        jdtls.set_runtime(p.args)
+        if jdtls_ready() then
+          jdtls.set_runtime(p.args)
+        end
       end, {
         desc = "切换 JDK（IDEA 的 Project SDK）",
         nargs = "?",
         complete = function(arg_lead)
+          if #vim.lsp.get_clients({ name = "jdtls" }) == 0 then
+            return {}
+          end
           return jdtls._complete_set_runtime(arg_lead)
         end,
       })
@@ -312,12 +595,47 @@ return {
       -- 启动 / 附加
       ------------------------------------------------------------------
       -- 每次启动/附加时重新解析 root_dir 和 cmd（-data workspace_dir 按项目切换）
+      -- 首个 Java buffer 的 FileType 会被触发两次（lazy 的 ft handler + runtime filetype.lua），
+      -- 没有守卫时 jdtls / spring-boot 会各 start 两次（实测 LSP_START_CALLS=4），这里按 buffer 去重
+      local started_bufs = {}
       local function start_jdtls(bufnr)
+        bufnr = (bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr
         local root_dir = resolve_root(bufnr)
         local config = vim.deepcopy(opts)
         config.root_dir = root_dir
         config.cmd = build_cmd(root_dir)
         config.on_attach = on_attach
+        -- 消掉 jdtls 每次启动都记的一条 ERROR：Command _java.reloadBundles.command not supported on client
+        -- 根因：Neovim 运行时**没有** workspace/executeClientCommand 的 handler（grep 过 runtime/lua/vim/lsp），
+        --   jdtls 发来的这条 client 命令拿到 "method not found"，于是记 ERROR。
+        --   bundles 已在启动时通过 init_options.bundles 传入，这里只需回一个**成功**应答（不做任何事）。
+        -- handler 必须在 config 里给（而不是启动后再补）：这条请求发生在初始化阶段，后补会晚于它。
+        -- 其它 client 命令仍按"未实现"回错，保持与原来一致的行为。
+        config.handlers = {
+          ["workspace/executeClientCommand"] = function(_, result)
+            local cmd = type(result) == "table" and result.command or nil
+            if cmd == "_java.reloadBundles.command" then
+              return
+            end
+            error({ code = -32601, message = "Method not found: " .. tostring(cmd) })
+          end,
+        }
+        if started_bufs[bufnr] then
+          -- ⚠ 重载缓冲区（:e / :e! / 任何触发 FileType 的重载）会让 Neovim 把该 buffer
+          --   从**所有** client 上 detach；随后只有走 vim.lsp.enable 按 filetype 管理的
+          --   spring-boot 会自己回来。原来的"直接 return"去重守卫让 jdtls 永远不回来 ⇒
+          --   之后 gh/gd/grn/gra 全部静默失效（实测通知：Empty hover response /
+          --   No locations found / No code actions available /
+          --   no matching language servers with rename capability）。
+          --   所以：已经启动过也要保证 jdtls 仍挂在这个 buffer 上（2026-09-25 真机定位）。
+          local existing = vim.lsp.get_clients({ name = "jdtls" })[1]
+          if existing and not (existing.attached_buffers or {})[bufnr] then
+            vim.lsp.buf_attach_client(bufnr, existing.id)
+          end
+          setup_java_keys(bufnr)
+          return
+        end
+        started_bufs[bufnr] = true
         jdtls.start_or_attach(config)
         setup_java_keys(bufnr)
       end
@@ -327,8 +645,8 @@ return {
       vim.api.nvim_create_autocmd("FileType", {
         group = group,
         pattern = "java",
-        callback = function()
-          start_jdtls(0)
+        callback = function(args)
+          start_jdtls(args.buf)
         end,
       })
 
