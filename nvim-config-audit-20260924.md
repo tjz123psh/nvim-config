@@ -1030,7 +1030,7 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 
 1. **上下文组是否常显**（`c` 代码操作 / `r` 重命名·运行 / `J` Java 测试调试 / `m` Maven·Gradle / `o` 整理 import / `R` 重构提取）
    - 现状：普通缓冲区不显示（无映射）；Java/LSP 缓冲区显示且中文齐全。
-   - 想常显的做法：给每组加"占位条目"（which-key v3 是否渲染"只有 desc 没有映射"的条目**未证实**，需要一次实测）。
+   - 想常显的做法：给每组加"占位条目"。✅ **已实测（不再是未证实）**：§26.x（台账行 1340）记录 which-key 3.17 **会渲染**只有 `desc`、没有映射的条目；2026-09-25 又真 pty 复验一次 —— `require("which-key").add({ { "<leader>Z", desc = "占位测试条目WKTEST" } })` 后按 `<leader>`，弹窗里出现 `Z ➜ 占位测试条目WKTEST` 一行。注意两点：① `<Space>` 节点自身不渲染，占位只能**直接塞进顶层**；② 用户已决定**保持上下文相关**，所以不采纳。
    - 我的建议：**保持现状**——常显会在普通缓冲区里塞进 6 个按了没反应的组。
 
 2. **可视模式触发器**（✅ 2026-09-25 已解决，见 §26.1）
@@ -1697,7 +1697,7 @@ hover            → Empty hover response
 
 - `<F5>` 调试主类：会话打开、**停在第 5 行断点**；`threads=6`、`stackFrames=[App.add(int,int) @App.java:5, App.main(String[]) @App.java:10]`、`Local: a = 3, b = 4`、**dapui 5 个面板**；截图 `~/backups/nvim-config-round13-*/evidence/dap-f5-stop-vars.png`。
 - `<leader>Jg` 调试测试方法：通知 **『Tests finished. Results printed to dap-repl. ✓ 1 succeeded』**。
-- **观察项（不是本轮改动引起）**：在他自己的 feed-java 副本里 `<F5>` 会打印 `Could not resolve java executable for io.github.p_feed.ApiApplication / WorkerApplication`（主类扫得到、javaExec 解析失败）；用**改前/改后两份配置做 A/B，表现完全一致**，而最小工程一切正常 ⇒ 记为待观察（疑与该工程 spring-boot LS 的 `workspace/executeClientCommand` 报错或导入未完成有关；下次在他真机上先 `:JavaBuildProjects` 等导入完再试）。
+- **观察项（不是本轮改动引起）** → ✅ **已在 §29 关闭**：当时 `<F5>` 会打印 `Could not resolve java executable for …ApiApplication / WorkerApplication`（主类扫得到、javaExec 解析失败），改前/改后 A/B 一致 ⇒ 不是 DAP 按需改动引入。**§29.1/§29.2.3 查明真因**：round 11 的 `executeClientCommand` handler 把请求吞了、且 `return nil` 让 jdtls 初始化期那条请求永远不回，jdtls 处于半初始化状态 ⇒ javaExec 解析失败。修好后同一副本 `<F5>` 得到 `session_open=true`、`threads=25`、`javaExec_err=false`。
 - 顺带纠错：DAP `threads` 响应体是 `{threads={...}}` 而**不是**数组（旧探针读 `#res.r` 恒得 0），与 §27.4 的 `stackFrames` 是同类坑。
 
 ### 28.3 大文件防御 autocmd：**不加**（用户：『那就不加也没有事』）
@@ -1732,8 +1732,8 @@ hover            → Empty hover response
 4. 真 pty 下空 `.java` 启动比 20k 行还慢 ~50ms（§27.7）：未定位，不影响判定。
 5. `language/status == ServiceReady` 六次运行一次都没收到（§27.7）：就绪判据已改用 `documentSymbol` 非空。
 6. 上游 nvim-jdtls 的 fields 类 `pick_many` 没有取消通道（§27.8 ②c）：本机已按契约返回空表，剩下要等上游。
-7. 他真机 feed-java 副本按 `<F5>` 报 `Could not resolve java executable`（§28.2）：改前/改后 A/B 完全一致 ⇒ **不是本轮改动引入**，列为待观察（先 `:JavaBuildProjects` 等导入完再试）。
-8. 未覆盖的测试面（§27.6/§27.7）：打开树后再 resize、160 列、go/rust 语言链、GUI(neovide) 路径。
+7. ~~他真机 feed-java 副本按 `<F5>` 报 `Could not resolve java executable`~~ → ✅ **已关闭**（§29.1/§29.2.3 查明是 round 11 handler 吞请求 + `return nil` 导致 jdtls 半初始化；修复后 `javaExec_err=false`）。
+8. 未覆盖的测试面：~~go/rust 语言链~~ → ✅ **已验证**（§29.4.2，`rust_analyzer`/`gopls` 正常）；**仍留**：打开树后再 resize、160 列单/双缓冲区两版、GUI(neovide) 的**视觉**判断（只能你自己看）。
 
 **本轮顺手订正的过时表述（共 16 处，全部加了 ✅ / 删除线注解）**——这些不是真待办，而是**早期轮次的遗留措辞**，不订正会被下一个会话误读成『还没做』：
 
