@@ -967,7 +967,7 @@ snacks 的 `ui.select` 自带 `layout.config`（按条目数算列表高，`sele
 | # | 项 | 阻塞/原因 |
 |---|---|---|
 | 1 | ~~`stylua --check .` 仍有 2 个文件不过~~ | ✅ **2026-09-25 已解决：41/41 通过（exit=0）**（补丁已应用，§26.11）。复核纠正（§26.2）：不是「你的 WIP 引入」——两个文件在 `git show HEAD:` 版本上**同样失败**（cheatsheet.lua 是历史欠账，blame 到 2026-09-02；java.lua 在 HEAD 失败于旧行、当前失败于 WIP 新增块）。所以 `git stash` 不会让它变绿，必须真跑一次 `stylua .`；注意它会改到你 WIP 的 4 处（java.lua:292 / 458-460 / 475-478 + cheatsheet.lua:149-156）。最小序列见 §26.2，当前 **39/41 通过** |
-| 2 | 28 个已跟踪文件（25 改 + 3 删）的改动尚未提交 git（另有 3 个未跟踪） | 我按约定不替你提交；`git status` 里含你的 6 个老 WIP + 前几轮改动 + 本轮落地的 5 处（§26.11：whichkey/keymaps/cheatsheet/spring_wizard 注释/java.lua 的 detach 修复） |
+| 2 | ~~未提交的改动~~ | ✅ **2026-09-25 已提交**（用户："开始提交"）：5 个提交 `6e2e29f`（移除已弃用插件）/ `438048f`（UI 观感）/ `c5ab8cf`（LSP·Java·DAP）/ `f1162b8`（core 键位与命令）/ `a9f1232`（审计文档）；提交后 `git status --porcelain` 为空（§26.13） |
 
 ### 23.3 ✅ 已决定（2026-09-25，用户："你推荐的来完成即可"）
 
@@ -1444,6 +1444,32 @@ hover            → Empty hover response
 **新发现（仅记录，未改配置）**：向导第 3 步"Java 版本"列表按**降序**排，指针默认落在最新版（实测 27），而带"LTS，推荐"hint 的 21 排在后面——直接回车会建出 Java 27 项目。若要默认 21，改 `spring_wizard.lua` 的排序或把指针预设到 LTS 项即可（等你一句话）。
 
 **仍只剩一件事**：28 个已跟踪文件的改动仍未提交 git——按你早先的要求，我一直没有 `git commit`。
+
+### 26.13 收尾：git 提交 + 临时文件清理（2026-09-25，用户："开始提交，然后清理临时文件"）
+
+**5 个提交（按主题切分，工作区最终干净）**
+
+| 提交 | 主题 | 规模 |
+|---|---|---|
+| `6e2e29f` | chore(plugins): 移除 telescope / dressing / Comment.nvim，UI 收敛到 snacks 一家 | 4 文件，+9 / −155 |
+| `438048f` | feat(ui): picker 皮肤 soft、浮窗/通知/状态栏/文件树观感统一，新增 devicons | 8 文件，+406 / −30 |
+| `c5ab8cf` | fix(lsp,java,dap): `:e` 重载后重新 attach jdtls、静音 reloadBundles，及补全/Treesitter 修复 | 7 文件，+472 / −66 |
+| `f1162b8` | refactor(core): 窗口切分挪到 `<leader>v`、which-key 支持可视模式、cheatsheet 补齐 | 10 文件，+957 / −276 |
+| `a9f1232` | docs: 加入配置审查报告（§0–§26）与 preflight 分批计划 | 2 文件，+1601 |
+
+> 切分口径：按"插件取舍 / UI / LSP·Java / core 键位 / 文档"分组，同文件的多轮改动合并进同一主题（因此每个主题的 diff 是**累积**改动，不只是本轮的）。
+
+**证据归档**：本轮全部探针脚本、原始日志与抓屏流、DAP 截图、三份 teammate 交付（decisions-brief / docs-sync-report / stylua+baseline 报告）与两个补丁，已归档到
+`~/backups/nvim-config-round11-20260925-123023/probe-evidence/`（459 文件 / 8.1M；另有同名 `.tar.gz` 628K，含 `MANIFEST.txt`）。
+⚠️ 本文 §26 里出现的 `~/tmp/nvim-probe/...` 路径已随清理失效——同名文件在归档目录里。
+
+**清理清单（已删）**
+
+- `~/tmp/nvim-probe/`（15M）：探针脚本 / 日志 / raw、`xdgA|xdgB|xdgC` 配置副本、`wk-check`、`head-check`、`acceptance/work` 实验目录、`java-demo` 与 `wizard-out` 一次性工程；随后 `~/tmp/` 已空 → 一并删除
+- 探针建的 jdtls 工作区：`java-demo-b4d2eb1060`、`demo-1bc19634ef`、`demo-561a2c8884`、`nvim-probe-d0eb1c856f`（约 180M）
+- `/tmp` 探针垃圾：`r9-*`/`r10-*`/`r11-*`/`r12-*`、`acc-*`、`audit-before-bt*.md`、`sw-*.lua`、`cs-before-fmt.lua`、`jdt-log-before.log`、`cmp-*`、`tmp.*` 等
+
+**保留**：`/tmp/termvenv`（pyte 抓屏工具链，丢了按 §25 重建）；更早轮次遗留的 jdtls 工作区（`javaproj`/`jproj`/`w1jb`/`w2verify`/`tmp-`/`some-very-long-project-name`/`docs`/`nvim`/`feed-java`，约 350M）——不是本次会话产生，未擅自删。
 
 
 
