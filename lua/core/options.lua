@@ -174,3 +174,29 @@ vim.diagnostic.config({
   },
   update_in_insert = false,
 })
+
+-- update_in_insert=false 时，runtime 收到诊断会**先 hide 再判断是否在插入模式**
+-- （/usr/share/nvim/runtime/lua/vim/diagnostic.lua:2381-2398）：插入模式中只排期显示，
+-- 而排期只挂在 InsertLeave / CursorHoldI 上（同文件 :854）。但 <C-c> 退出插入模式
+-- **不触发 InsertLeave**（:h i_CTRL-C），<C-\><C-n>、:stopinsert 等路径也各有各的脾气
+-- ⇒ 那批诊断的 signs / underline / virtual_text / virtual_lines 会一直缺失，而数据仍在
+-- 缓存里（]d、vim.diagnostic.get 都正常），表现为「报错莫名其妙不见了」。
+-- 实测 <Esc> / <C-c> / <C-[> / <C-@> / <C-\><C-n> / i_<F5>-><Cmd>stopinsert<CR> /
+-- better-escape 的 jk 都会触发 ModeChanged 的 i*->n*，所以在这里补一次渲染覆盖所有出口。
+-- 只重绘「窗口里可见的 buffer」（通常 1 个，实测 0.2-0.6ms；全量 show(nil,nil) 在
+-- 多 buffer 会话里 10ms+，不适合放在每次退出插入模式时）。
+vim.api.nvim_create_autocmd("ModeChanged", {
+  group = vim.api.nvim_create_augroup("UserDiagnosticInsertLeaveFallback", { clear = true }),
+  pattern = "i*:n*",
+  callback = function()
+    local done = {}
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      local bufnr = vim.api.nvim_win_get_buf(win)
+      if not done[bufnr] then
+        done[bufnr] = true
+        vim.diagnostic.show(nil, bufnr)
+      end
+    end
+  end,
+  desc = "退出插入模式（含 <C-c>）后补渲染被 update_in_insert=false 隐藏的诊断",
+})

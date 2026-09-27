@@ -132,7 +132,27 @@ return {
       end
 
       local jdtls = require("jdtls")
-      local on_attach = require("core.lsp_on_attach")
+      local shared_on_attach = require("core.lsp_on_attach")
+
+      -- ── 关闭 Java 缓冲区的 LSP 语义高亮（2026-09-26，B 线排障：写 Java 时代码颜色来回变）──
+      -- Neovim 0.12 在 client attach 后会**自动启用**服务器支持的全部 capability
+      -- （runtime/lua/vim/lsp/client.lua:1187-1198 遍历 vim.lsp._capability.all），
+      -- 而 semantic_tokens 的全局默认是 true（runtime/lua/vim/lsp/semantic_tokens.lua:1011
+      -- 的 M.enable(true)）⇒ jdtls 的语义 token 一直是开着的，并以 @lsp.type.* 覆盖
+      -- treesitter（优先级 semantic_tokens=125 > treesitter=100，见 vim/hl.lua:12-18）。
+      -- catppuccin 把大多数 @lsp.type.* 链回同名 treesitter 组、颜色恰好一致，但
+      -- @lsp.type.property → @property（lavender #b4befe）会盖掉 Java 全大写常量的
+      -- @constant.java（teal #94e2d5）⇒ 新写的常量会「treesitter 色 → LSP 色」跳一次。
+      -- 实测时间序列（打字时同一标识符）：teal → lavender → 灰，见
+      -- /tmp/nvim-probe-B/findings-B.md。
+      -- 按 buffer 关闭而不是只把 jdtls 的 semanticTokensProvider 置 nil：spring-boot LS
+      -- 也声明了 semanticTokensProvider，buffer 级标记（vim.b[bufnr]）能让**之后**才
+      -- attach 的 client 同样不再启用（_capability.is_enabled 会读它）。
+      -- Java 仍有完整的 treesitter 高亮，不会整片失去颜色。
+      local function java_on_attach(client, bufnr)
+        vim.lsp.semantic_tokens.enable(false, { bufnr = bufnr })
+        shared_on_attach(client, bufnr)
+      end
 
       -- ── DAP 按需加载（2026-09-25，台账 §28.1） ──
       -- 原来这里是 `local jdtls_dap = require("jdtls.dap")` + `local dap = require("dap")`，
@@ -622,7 +642,7 @@ return {
         local config = vim.deepcopy(opts)
         config.root_dir = root_dir
         config.cmd = build_cmd(root_dir)
-        config.on_attach = on_attach
+        config.on_attach = java_on_attach
         -- workspace/executeClientCommand（服务端→客户端请求）：nvim 侧必须自己转发，否则
         -- spring-boot 的 classpath 握手（beans / endpoints / application.yml 补全）永远不执行。
         -- 三条硬规则（完整踩坑记录见技能 nvim-troubleshooting §19）：

@@ -44,5 +44,24 @@ return {
   config = function(_, opts)
     require("catppuccin").setup(opts)
     vim.cmd.colorscheme("catppuccin") -- 应用主题
+
+    -- ── 诊断 tag 不要重绘文字颜色（2026-09-26，用户报「写 Java 时代码颜色变来变去」）──
+    -- Neovim 0.12 对带 `unnecessary` tag 的诊断（jdtls 的未使用字段/局部变量/import）会
+    -- 额外叠一层 DiagnosticUnnecessary（runtime/lua/vim/diagnostic.lua:1832-1856），
+    -- 而 runtime/colors/vim.lua:137 把它 link 到 Comment ⇒ catppuccin 下整段文字被染成
+    -- 灰 #9399b2 + 斜体。jdtls 每次编辑后 300~700ms 重新发布诊断，于是「刚写下的字段/常量」
+    -- 会先变灰、被用上之后又变回来 —— 这正是「写着写着颜色变来变去」里最刺眼的一层。
+    -- 清空属性后：文字保持 treesitter 原色，tag 诊断仍有常规严重级别下划线（不受影响）。
+    -- DiagnosticDeprecated 只有删除线、不染字色（实测 sp+strikethrough），保持原样。
+    local function neutralize_unnecessary_tag()
+      vim.api.nvim_set_hl(0, "DiagnosticUnnecessary", {})
+    end
+    neutralize_unnecessary_tag()
+    -- 手动 :colorscheme 会重建高亮组，这里补一次（ColorScheme 事件在主题高亮之后触发）
+    vim.api.nvim_create_autocmd("ColorScheme", {
+      group = vim.api.nvim_create_augroup("theme_diagnostic_tags", { clear = true }),
+      callback = neutralize_unnecessary_tag,
+      desc = "诊断 tag（Unnecessary）不重绘文字颜色",
+    })
   end,
 }
