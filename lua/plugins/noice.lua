@@ -4,6 +4,9 @@
 -- 输入框/选择器由 snacks 统一提供（dressing.nvim 已删除），noice 只负责命令行与消息
 -- ============================================
 
+-- 输入类浮窗的统一尺寸/位置（与 plugins/snacks.lua 共用，见该模块注释）
+local input_boxes = require("core.input_boxes")
+
 return {
   "folke/noice.nvim",
   lazy = false,
@@ -30,17 +33,19 @@ return {
   opts = {
     -- 命令行输入弹窗（居中圆角浮动窗口，窄终端自动收缩）
     views = {
-      -- 宽度用 "auto"：noice 只在 auto 时才把宽度夹进
-      -- minmax(min_width, max_width(默认 columns-4), 内容宽) —— 写死数字会绕过这层保护，
-      -- 60~80 列终端上会裁边（历史：写 78 时浮窗总宽 82 > 80）
+      -- 宽度必须保持 "auto"：noice 只在 auto 时才把宽度夹进
+      -- minmax(min_width, max_width(默认 columns-4), 内容宽)；把 78 写进 width 会绕过这层保护，
+      -- 总宽 82 在 80 列终端上被裁边（历史坑）。
+      -- 下限 min_width 由 40 提到 input_boxes.noice_min_width（2026-09-26 用户反馈"命令行框比
+      -- 输入框短太多"：实测输入框 84 列 vs 命令行 44 列）⇒ 与 snacks 输入框等长；长命令仍随内容变宽。
       cmdline_popup = {
         position = { row = "50%", col = "50%" },
-        size = { width = "auto", min_width = 40, height = "auto" },
+        size = { width = "auto", min_width = input_boxes.noice_min_width, height = "auto" },
         border = { style = "rounded" },
       },
       cmdline_input = {
         position = { row = "50%", col = "50%" },
-        size = { width = "auto", min_width = 40, height = "auto" },
+        size = { width = "auto", min_width = input_boxes.noice_min_width, height = "auto" },
         border = { style = "rounded" },
       },
       -- :messages / :Noice 的历史默认是"底部 20% 全宽 split"（noice views.lua 的 messages），

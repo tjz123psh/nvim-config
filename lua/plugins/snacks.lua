@@ -5,6 +5,9 @@
 -- （三者已于 2026-09-24 删除）。snacks.picker 支持 text-node 数组、原生多选与预览，一次做到位。
 -- ⚠ 除 picker/input 外全部显式关闭：notifier 会顶掉 noice、dashboard 顶掉 alpha、terminal 顶掉 toggleterm。
 -- ============================================
+-- 输入类浮窗的统一尺寸/位置（与 plugins/noice.lua 共用，见该模块注释）
+local input_boxes = require("core.input_boxes")
+
 return {
   {
     "folke/snacks.nvim",
@@ -316,7 +319,13 @@ return {
       terminal = { enabled = false },
       -- ★ 接管 vim.ui.input（重命名、向导的文本步骤等）。原来关着是为了让给 dressing，
       --   现在 dressing 整个撤掉，输入也必须由 snacks 提供，否则只剩命令行输入。
-      input = { enabled = true },
+      -- 位置/宽度与 noice 命令行弹窗对齐（同一行、同一长度）：snacks 输入框的默认样式把
+      -- row 写死成 2（贴着编辑器顶部），用户反馈"太上面了"（2026-09-26）⇒ 这里覆盖成
+      -- 与命令行框重合的内容行；宽度口径见 core/input_boxes.lua 的注释。
+      input = {
+        enabled = true,
+        win = { row = input_boxes.center_row, width = input_boxes.width },
+      },
       scroll = { enabled = false },
       -- 注：以前这里还有 zoom/util/list/job/git_linker/git_hosting 六个键 —— 2026-09-25 审查
       -- （§29.2.2）逐个对照已装 snacks 源码：它们**都不是模块**（真名是 zen；util/list/job 是
