@@ -495,10 +495,112 @@ return {
           return selector
         end
 
+        -- 方法声明最多跨两行：`void foo() throws Exception` + 下一行的 `{`。
+        -- 旧实现用单行正则要求 `)` 之后紧跟 `{`，带 throws 的测试方法一律匹配不到，
+        -- 循环继续向上搜，命中上方某个旧方法 —— 用户以为在测 A，终端里跑的是 B。
+        -- 2026-09-28 实测复现：光标在 testOrderCreation（带 throws）内，跑的是 testAlpha。
+        -- 现在改成按「语句」判定：收集到 `)` 括号配平、再容忍一层 throws/泛型里的括号。
+        --- 括号是否配平（忽略字符串字面量里的括号）
+        local function parens_balanced(s)
+          local depth = 0
+          local in_str = false
+          local escaped = false
+          for i = 1, #s do
+            local ch = s:sub(i, i)
+            if in_str then
+              if escaped then
+                escaped = false
+              elseif ch == "\\" then
+                escaped = true
+              elseif ch == '"' then
+                in_str = false
+              end
+            elseif ch == '"' then
+              in_str = true
+            elseif ch == "(" then
+              depth = depth + 1
+            elseif ch == ")" then
+              depth = depth - 1
+            end
+          end
+          return depth == 0
+        end
+
+        --- 出现在「返回值」位置说明这不是方法声明（控制流关键字是 %w，会混进 token 列表）
+        local JAVA_NON_TYPE = {
+          ["if"] = true,
+          ["for"] = true,
+          ["while"] = true,
+          ["switch"] = true,
+          ["catch"] = true,
+          ["return"] = true,
+          ["new"] = true,
+          ["else"] = true,
+          ["do"] = true,
+          ["try"] = true,
+          ["assert"] = true,
+          ["throw"] = true,
+          ["case"] = true,
+          ["super"] = true,
+          ["this"] = true,
+          ["synchronized"] = true,
+          ["default"] = true,
+          ["instanceof"] = true,
+        }
+
+        --- 从「声明 + 可选 body 行」里取方法名；拿不准就返回 nil（宁可报「未找到」，也不要命中错方法）
+        local function method_name_from(signature)
+          -- 注解与声明同行时放弃（本机风格注解独占一行）
+          if signature:match("%s@[%w_%.]+%s") then
+            return nil
+          end
+          local sig = signature:gsub("%s*{%s*$", "")
+          -- ① 只认「紧跟在标识符后的整套括号」：head 里不许有 ( ` = ; ，这样
+          --    assertTrue(foo(bar)) / x = foo() 这类语句在第一关就被挡掉
+          local head = sig:match("^([%w_%s<>%[%],%.%?]+)")
+          if not head then
+            return nil
+          end
+          local rest = sig:sub(#head + 1)
+          -- ② head 必须以标识符结尾（方法名），且方法名后面直接就是 (
+          if not head:match("[%w_]$") or rest:sub(1, 1) ~= "(" then
+            return nil
+          end
+          if not parens_balanced(rest) then
+            return nil
+          end
+          -- ③ 必须像「类型 + 方法名」：至少两个 token，返回值位置不是控制流关键字、也不是泛型
+          local tokens = {}
+          for tok in head:gmatch("[%w_<>%[%],%.%?]+") do
+            tokens[#tokens + 1] = tok
+          end
+          if #tokens < 2 then
+            return nil
+          end
+          -- 返回值只取泛型前的裸类型名：Map<String, 与 List<Integer>> 都要还原成 Map / List
+          local ret = (tokens[#tokens - 1]:match("^([%w_%.]+)") or ""):lower()
+          if ret == "" or JAVA_NON_TYPE[ret] then
+            return nil
+          end
+          local name = tokens[#tokens]
+          if name:match("^%d") then
+            return nil
+          end
+          return name
+        end
+
         for index = cursor_line, 1, -1 do
-          local method_name = lines[index]:match("^%s*[%w_%s<>%[%],%.%?]+%s+([%w_]+)%s*%([^;]*%)%s*{%s*$")
-          if method_name then
-            return selector .. "#" .. method_name
+          local joined = lines[index]:gsub("/%*.*%*/", " "):gsub("//.*$", "")
+          -- 声明被拆成两行时，把下一条非空行（通常就是 `{`）接上来
+          if index < #lines then
+            local nxt = lines[index + 1]:gsub("/%*.*%*/", " "):gsub("//.*$", "")
+            if vim.trim(nxt) ~= "" then
+              joined = joined .. " " .. vim.trim(nxt)
+            end
+          end
+          local name = method_name_from(joined)
+          if name then
+            return selector .. "#" .. name
           end
         end
 

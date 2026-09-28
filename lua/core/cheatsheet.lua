@@ -75,6 +75,7 @@ local sections = {
       { "<leader>fb", "切换缓冲区" },
       { "<leader>fh", "搜索帮助" },
       { "<leader>fp", "搜索项目" },
+      { "<leader>fr", "最近打开的文件" },
       { "<leader>fc", "搜索 Neovim 配置" },
     },
   },
@@ -374,5 +375,11 @@ function M.show()
   vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf, silent = true })
   vim.keymap.set("n", "<Esc>", "<cmd>close<cr>", { buffer = buf, silent = true })
 end
+
+-- :CheatSheet —— 与 <leader>hk 同一个入口。
+-- 2026-09-28 审查 F02：文件头注释一直写着「<leader>hk / :CheatSheet」，但命令从来没注册过
+-- （`:CheatSheet` 直接报 E492），速查面板里的「自定义命令」清单也没有它 ⇒ 注释在说谎。
+-- 放在本模块内注册（而不是 core/commands.lua）：谁被 require 谁就带着命令，不会再漏。
+vim.api.nvim_create_user_command("CheatSheet", M.show, { desc = "快捷键速查浮窗" })
 
 return M

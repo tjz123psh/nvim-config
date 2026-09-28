@@ -212,6 +212,27 @@ return {
         },
       })
 
+      -- grep 专用预设：给「搜文件内容」单独加右栏预览（2026-09-28 审查 G02 落地）。
+      -- 背景：全局默认是 picker_compact 且 hidden={"preview"}（作者有意为之，见上面 :303 的注释），
+      --   代价是全局 grep 只有「文件名 + 一行匹配文本」，看不出上下文（实测 preview 窗口根本没创建）。
+      -- 这里**只**给 grep 换布局，其余 picker（文件/缓冲区/帮助/最近/项目）保持紧凑不变 ——
+      --   即只推翻当初取舍的一半：搜「文件名」不需要预览，搜「内容」需要。
+      -- 结构照搬 snacks 内置 default（box=horizontal：左列 input+list，右栏 preview）。
+      -- ⚠ 预览窗的列表子窗高度由 picker_compact 的 config 负责（它只认 list 子窗，对嵌套 box 同样生效）。
+      layouts.grep_split = vim.tbl_deep_extend("force", vim.deepcopy(layouts.picker_compact), {
+        hidden = {}, -- 关键：不再隐藏 preview
+        layout = {
+          -- 有预览时不能再窄：0.55 会让左右两栏都挤，这里给到 0.8（窄终端仍夹在 min_width）
+          width = function()
+            return math.max(80, math.min(150, math.floor(vim.o.columns * 0.8)))
+          end,
+          min_width = 80,
+          box = "horizontal",
+          { box = "vertical", border = "none", { win = "input", height = 1 }, { win = "list" } },
+          { win = "preview", title = " {preview} ", border = "left", width = 0.5 },
+        },
+      })
+
       -- ⚠ 已知良性：:checkhealth snacks 会报 "vim.ui.select is not set to Snacks.picker.select" ——
       --   因为下面这层 wrapper 让身份比较（== Snacks.picker.select）永远失败；功能完全正常
       --   （wrapper 内部调用的就是 snacks 原函数，只是先收 2 行高度）。2026-09-25 审查线②核实并登记。
@@ -306,6 +327,12 @@ return {
           cycle = true,
           preset = "picker_compact",
         },
+        -- 例外：只给 grep（搜文件内容）换成带右栏预览的布局（2026-09-28 审查 G02）。
+        --   搜「文件名」不需要预览，搜「内容」很需要 —— 所以这条是当初「全局去预览」取舍的
+        --   一半回滚，其余 picker 保持紧凑。预设定义见下面 config() 里的 layouts.grep_split。
+        sources = {
+          grep = { layout = { preset = "grep_split" } },
+        },
         -- 键位在下面的 config() 里注入（spec 解析期 snacks 还没进 rtp，require 会失败）
         -- ★ 接管 vim.ui.select：全机只留 snacks 一个选择器（原来留给 dressing，
         --   两套 UI 会互相打架）。注意 snacks 的 select 用 source="select"，
@@ -324,6 +351,7 @@ return {
       -- 与命令行框重合的内容行；宽度口径见 core/input_boxes.lua 的注释。
       input = {
         enabled = true,
+        -- width 传**函数**：开窗时求值 ⇒ 跟随当前屏幕列数（input_boxes.width 见 core/input_boxes.lua）
         win = { row = input_boxes.center_row, width = input_boxes.width },
       },
       scroll = { enabled = false },

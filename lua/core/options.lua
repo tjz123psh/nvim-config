@@ -90,21 +90,34 @@ end
 -- （2026-09-25 用户截图：`…for the arguments (Instant, OffsetDat` 被切掉）。
 -- 但它按 \n 切分消息（runtime/lua/vim/diagnostic.lua:2138 的 gmatch('([^\n]+)')），
 -- 每行都会带 └──── 前缀、续行缩进 6 格对齐 ⇒ 我们自己把 \n 插进去就能完整显示。
+-- ⚠ 保留每行的**前导空白**（2026-09-28 审查 B05）：旧实现用 `vim.split(para, "%s+")`
+--   把整行压成「单词+单空格」，编译器错误里靠缩进对齐的指示符全部错位：
+--     `    baz.qux();` / `       ^`  →  `baz.qux(); ^`（`^` 指到行中间，完全失去指认能力）。
+--   现在分三类：① 错误指示符行（含 ^ ~ 且没有别的词）整行不折；② 其余行保留前导缩进后再折；
+--   ③ 只有行内空白仍会被压成单空格（跨行拼接本来就是这个语义，无害）。
 local function wrap_message(text, width)
   local out = {}
   for _, para in ipairs(vim.split(text, "\n", { plain = true })) do
+    local trimmed = vim.trim(para)
+    -- ① 指示符行：只有 ^ 或 ~（javac/ECJ 的指着箭头），折行会让箭头指错位置 ⇒ 原样保留
+    if trimmed ~= "" and trimmed:match("^[%^~]+$") then
+      out[#out + 1] = para
+      goto continue
+    end
+    local indent = para:match("^(%s*)") or ""
+    local avail = math.max(10, width - vim.fn.strdisplaywidth(indent))
     local line, line_w = "", 0
     for _, word in ipairs(vim.split(para, "%s+", { trimempty = true })) do
       local word_w = vim.fn.strdisplaywidth(word)
-      if line_w > 0 and line_w + 1 + word_w > width then
-        out[#out + 1] = line
+      if line_w > 0 and line_w + 1 + word_w > avail then
+        out[#out + 1] = indent .. line
         line, line_w = "", 0
       end
-      if word_w > width then -- 超长 token（长包名 / 长签名）硬断
+      if word_w > avail then -- 超长 token（长包名 / 长签名）硬断
         for _, ch in ipairs(vim.fn.split(word, "\\zs")) do
           local cw = vim.fn.strdisplaywidth(ch)
-          if line_w + cw > width and line_w > 0 then
-            out[#out + 1] = line
+          if line_w + cw > avail and line_w > 0 then
+            out[#out + 1] = indent .. line
             line, line_w = "", 0
           end
           line, line_w = line .. ch, line_w + cw
@@ -117,8 +130,9 @@ local function wrap_message(text, width)
       end
     end
     if line_w > 0 then
-      out[#out + 1] = line
+      out[#out + 1] = indent .. line
     end
+    ::continue::
   end
   if #out > 12 then -- 超长消息别把整屏占满；按 ]d 弹的浮窗里仍是完整的
     out = vim.list_slice(out, 1, 12)

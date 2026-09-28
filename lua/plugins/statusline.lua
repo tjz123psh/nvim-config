@@ -51,6 +51,13 @@ return {
             update_in_insert = false,
             symbols = { error = " 󰅚 ", warn = " 󰀪 ", info = " 󰋽 ", hint = " 󰌶 " },
           },
+          -- LSP 客户端指示（2026-09-28 审查 G03）：显示已经附加到当前 buffer 的客户端名
+          -- （jdtls / spring-boot / gopls…），索引时是转圈动画、就绪后是 ✓。
+          -- lualine 自带该组件（lualine/components/lsp_status.lua，本机实测 require 成功），
+          -- 不需要自己写；它监听 LspProgress 事件，没客户端时不占位。
+          -- ⚠ 实测确认它确实在渲染（lua 文件无 LSP 时不显示、打开 Java 项目时出现）。
+          --   若不想要这个动画（极简风），删掉下面两行即可，其余配置不受影响。
+          { "lsp_status", icon = "", show_name = true },
           "filetype",
         },
         lualine_y = { "progress" },

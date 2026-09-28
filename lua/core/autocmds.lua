@@ -107,6 +107,13 @@ vim.api.nvim_create_autocmd("CmdlineLeave", {
   group = augroup,
   desc = "记住刚执行的命令行（用于识别 :q! / :qa! 的放弃语义）",
   callback = function()
+    -- ⚠ <Esc> / <C-c> 中止命令行时也会触发本事件，且此时 getcmdline() 仍返回已敲的内容、
+    --   vim.v.event.abort == true。不判 abort 的话，敲了 :q! 又反悔按 Esc 会把
+    --   discard_pending 粘成 true，之后所有自动保存被静默 return（数据不落盘）。
+    --   2026-09-28 实测：Esc 后切 buffer 不写盘，对照组写盘。
+    if vim.v.event.abort then
+      return
+    end
     discard_pending = is_bang_quit(vim.fn.getcmdline())
   end,
 })

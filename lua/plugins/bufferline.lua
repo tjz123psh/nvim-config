@@ -80,8 +80,11 @@ return {
         -- 配合上面的"实底"调色：否则启动页/单文件编辑时顶部会多出一条**空的**实色横条
         -- （transparent 时代它是隐形的，所以以前看不出来）。LazyVim 也是 false。
         always_show_bufferline = false,
-        close_command = "bdelete %d",
-        right_mouse_command = "bdelete %d",
+        -- 用 :BufDelete（core/commands.lua）而不是原生 :bdelete：
+        -- 后者会把该 buffer 所在的窗口一起关掉（2026-09-28 审查 A03，真 pty 实测 2 窗口→1），
+        -- 点标签页的 × 就砸掉分屏；:BufDelete 走 Snacks.bufdelete，保住布局。%d = 目标 buffer 号。
+        close_command = "BufDelete %d",
+        right_mouse_command = "BufDelete %d",
         indicator = {
           style = "icon",
           icon = "▎",

@@ -50,13 +50,20 @@ map("n", "<leader>fc", function()
   require("snacks").picker.files({ cwd = vim.fn.stdpath("config") })
 end, { desc = "搜索 Neovim 配置文件" })
 map("n", "<leader>fp", "<cmd>Projects<cr>", { desc = "搜索项目" })
+-- 最近文件：dashboard 的 r 键只在启动页有效（2026-09-28 审查 G01：离开启动页后
+-- 再无任何热键能呼出，只剩 :lua require('snacks').picker.recent() 这种长命令）
+map("n", "<leader>fr", function()
+  require("snacks").picker.recent()
+end, { desc = "最近打开的文件" })
 map("n", "<leader>q", "<cmd>q<cr>", { desc = "关闭当前窗口" })
 
 -- 报错逃生口：noice 接管 vim.notify 后，LSP/插件报错只闪一次通知，`:messages` 里查不到
 map("n", "<leader>he", "<cmd>Noice errors<cr>", { desc = "最近的报错（noice 历史）" })
 map("n", "<leader>hh", "<cmd>Noice history<cr>", { desc = "全部消息历史（noice）" })
 map("n", "<leader>ba", "<cmd>BufferLineCloseOthers<cr>", { desc = "关闭其他缓冲区" })
-map("n", "<leader>bd", "<cmd>bdelete<cr>", { desc = "关闭当前缓冲区（文件）" })
+-- 用 :BufDelete 而不是原生 :bdelete：后者会把该 buffer 所在的窗口一起关掉，砸碎分屏
+-- （2026-09-28 审查 A03，真 pty 实测 3 窗口→1）；:BufDelete 走 Snacks.bufdelete 保住布局。
+map("n", "<leader>bd", "<cmd>BufDelete<cr>", { desc = "关闭当前缓冲区（保留分屏）" })
 map("n", "<leader>wq", "<cmd>wq<cr>", { desc = "保存并关闭" })
 
 -- 普通模式下移动当前行：J 下移，K 上移；支持数字前缀，例如 3J
@@ -171,7 +178,10 @@ local function move_visual_lines(direction)
     vim.fn.setpos("'<", { 0, new_first, 1, 0 })
     vim.fn.setpos("'>", { 0, new_last, 1, 0 })
     vim.api.nvim_win_set_cursor(0, { new_last, 0 })
-    vim.cmd("normal! gV")
+    -- ⚠ 必须是 gv：gV 是"映射结束后不要自动重选"的开关，在这里是 no-op
+    --   （上面这行 normal! \27 已经退出可视模式，gV 无从恢复），行选按 J 会直接
+    --   掉回普通模式，连续拖动要每次重按 V。2026-09-28 实测 mode()=V→n。
+    vim.cmd("normal! gv")
   else
     -- 列要各自跟着自己那一端走；'< / '> 都保留原列，块选择才不会塌成整行
     vim.fn.setpos("'<", { 0, new_first, start_col, 0 })

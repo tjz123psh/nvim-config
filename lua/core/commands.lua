@@ -26,6 +26,26 @@ vim.api.nvim_create_user_command("A", function()
   end
 end, { force = true, desc = "打开欢迎页" })
 
+-- 关闭缓冲区但**保住分屏布局** --------
+-- 2026-09-28 审查 A03：原生 :bdelete 在这台 nvim 上会把该 buffer 所在的窗口一起关掉
+-- （真 pty 实测：3 窗口删当前 buffer → 1 窗口；2 窗口 → 1 窗口），左右分屏看代码时按
+-- <leader>bd 会把整个布局砸碎。Snacks.bufdelete() 删完 buffer 后把该窗口切到相邻 buffer，
+-- 实测 2 窗口 → 保持 2 窗口（两窗都显示 f1）。
+-- ⚠ 它比原生 :bdelete 多一个好处：buffer 有未保存改动时弹 confirm（保存/不保存/取消），
+--   而原生 :bdelete 只报 E89 让你自己补 !。
+-- ⚠ 显式带上 buf：bufferline 的 close_command 是字符串，%d 会被替换成目标 buffer 号；
+--   不带参数时 snacks 自己取当前 buffer（<leader>bd 走这条）。
+vim.api.nvim_create_user_command("BufDelete", function(p)
+  local buf = tonumber(p.args)
+  local ok, snacks = pcall(require, "snacks")
+  if ok and snacks.bufdelete then
+    snacks.bufdelete(buf)
+    return
+  end
+  -- snacks 还没加载（极少见）：退回原生，至少功能不断
+  vim.cmd("bdelete" .. (buf and (" " .. buf) or ""))
+end, { nargs = "?", desc = "关闭缓冲区（保留分屏布局）" })
+
 -- LSP 客户端信息查看（0.12 移除了内置版，手动恢复）-----
 
 vim.api.nvim_create_user_command("LspInfo", function()

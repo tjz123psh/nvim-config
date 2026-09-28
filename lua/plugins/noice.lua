@@ -34,18 +34,20 @@ return {
     -- 命令行输入弹窗（居中圆角浮动窗口，窄终端自动收缩）
     views = {
       -- 宽度必须保持 "auto"：noice 只在 auto 时才把宽度夹进
-      -- minmax(min_width, max_width(默认 columns-4), 内容宽)；把 78 写进 width 会绕过这层保护，
-      -- 总宽 82 在 80 列终端上被裁边（历史坑）。
-      -- 下限 min_width 由 40 提到 input_boxes.noice_min_width（2026-09-26 用户反馈"命令行框比
+      -- minmax(min_width, max_width(默认 columns-4), 内容宽)；把具体宽度写进 width 会绕过这层保护。
+      -- 下限 min_width 由 40 提到 input_boxes.noice_min_width()（2026-09-26 用户反馈"命令行框比
       -- 输入框短太多"：实测输入框 84 列 vs 命令行 44 列）⇒ 与 snacks 输入框等长；长命令仍随内容变宽。
+      -- ⚠ noice 的 min_width 只能是数字 ⇒ 这里是**配置加载时的快照**：80 列终端下取 38（总宽 42+…）
+      --   而不是写死 78，右边框不会再被推出屏幕（2026-09-28 审查 U01）。改终端大小要重启才跟上；
+      --   snacks 那侧是函数、开窗即求值。两边公式都出自 core/input_boxes.lua，别只改一边。
       cmdline_popup = {
         position = { row = "50%", col = "50%" },
-        size = { width = "auto", min_width = input_boxes.noice_min_width, height = "auto" },
+        size = { width = "auto", min_width = input_boxes.noice_min_width(), height = "auto" },
         border = { style = "rounded" },
       },
       cmdline_input = {
         position = { row = "50%", col = "50%" },
-        size = { width = "auto", min_width = input_boxes.noice_min_width, height = "auto" },
+        size = { width = "auto", min_width = input_boxes.noice_min_width(), height = "auto" },
         border = { style = "rounded" },
       },
       -- :messages / :Noice 的历史默认是"底部 20% 全宽 split"（noice views.lua 的 messages），
