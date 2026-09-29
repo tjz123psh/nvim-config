@@ -86,7 +86,11 @@ local function current_opacity()
   return vim.g.neovide_opacity or 1.0
 end
 
---- 弹出选择框调不透明度；上下移动即实时预览，回车确认 / Esc 还原
+--- 弹出选择框调不透明度；选中后回车确认、Esc 取消（保持原值）。
+--- ⚠ 没有「上下移动即实时预览」：预览要在确认时才生效。曾把 prompt 写成「上下预览」，
+---   实测（打开框不确认、读 vim.g.neovide_opacity）值不变 ⇒ 那句是假的，已改掉。
+---   想要实时预览就得用 snacks 的 on_move（cursor 变即套用），但它和「Esc 还原原值」
+---   需要额外的原值兜底，复杂度不值当 —— 需要的话再说。
 local function pick_opacity()
   local original = current_opacity()
   local items = {}
@@ -106,7 +110,7 @@ local function pick_opacity()
   end
 
   vim.ui.select(items, {
-    prompt = "不透明度（上下预览，回车确认，Esc 还原）",
+    prompt = "不透明度（回车确认，Esc 取消）",
     format_item = function(it)
       local mark = math.abs(it.value - original) < 0.001 and "● " or "  "
       return mark .. it.label
