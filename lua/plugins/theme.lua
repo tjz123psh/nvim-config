@@ -4,6 +4,11 @@
 -- 风味：mocha（最深色） / macchiato / frappe / latte（浅色）
 -- ============================================
 
+--- 当前风味：运行时切换过就用 vim.g 记着的那个，否则用下面 opts.flavour 的默认值
+local function current_flavour()
+  return vim.g.catppuccin_flavour or "mocha"
+end
+
 return {
   "catppuccin/nvim",
   name = "catppuccin",
@@ -11,7 +16,9 @@ return {
   priority = 1000, -- 高优先级，确保在其他插件之前加载
 
   opts = {
-    flavour = "mocha", -- 深色风味
+    -- 深色风味。运行时改了风味记在 vim.g.catppuccin_flavour（<leader>ft 用），
+    -- 但那只是「当前生效值」；要持久就改这一行的默认值。
+    flavour = "mocha",
     transparent_background = true, -- kitty 终端已配 background_opacity，Neovim 不设背景色即可透出桌面
     term_colors = true, -- 让终端模拟器的颜色也匹配主题
 
@@ -38,6 +45,64 @@ return {
       snacks = true,
       flash = true,
       notify = true,
+    },
+  },
+
+  -- 换主题的选择框（2026-09-28）。放在 spec 的 keys 里注册：lazy 用 callback 挂键，
+  -- 按下去才加载，不需要 core/keymaps.lua 再抄一份。
+  --
+  -- ⚠ 核心约束：vim.ui.select 的回调**可能是异步的**（snacks 是异步、Neovim 原生是同步）。
+  --   所以「应用」必须写在 on_choice **内部**，绝不能写成：
+  --     local picked; vim.ui.select(..., function(ch) picked = ch end); apply(picked)
+  --   —— 异步时 select 立刻返回、picked 还是 nil，那条 apply 会拿旧值把预览顶掉，
+  --   之后真正的选择再也不会生效（本地实测踩过：选 frappe 毫无反应）。
+  keys = {
+    {
+      "<leader>ft",
+      function()
+        local flavours = { "mocha", "macchiato", "frappe", "latte" }
+        local labels = {
+          mocha = "mocha（最深，当前默认）",
+          macchiato = "macchiato（次深）",
+          frappe = "frappe（偏灰的暗色）",
+          latte = "latte（浅色，白天用）",
+        }
+        local original = current_flavour()
+        -- 换风味只做两件事：记下当前值 + :colorscheme。
+        -- 剩下三处收尾（诊断 tag / picker 皮肤 / 向导高亮）都挂在 ColorScheme 事件上，会自己跟上。
+        local function apply(f)
+          vim.g.catppuccin_flavour = f
+          local ok, err = pcall(vim.cmd.colorscheme, "catppuccin-" .. f)
+          if ok then
+            return true
+          end
+          vim.notify("切换主题失败：" .. tostring(err), vim.log.levels.ERROR)
+          return false
+        end
+        vim.ui.select(flavours, {
+          prompt = "主题风味（回车确认 / Esc 取消）",
+          format_item = function(f)
+            return (f == original and "● " or "  ") .. (labels[f] or f)
+          end,
+        }, function(choice)
+          -- choice 为 nil = 用户取消 ⇒ 还原成原风味（这里其实什么都没改过，写出来更明确）
+          if not choice or choice == original then
+            if not choice then
+              apply(original)
+            end
+            return
+          end
+          if apply(choice) then
+            vim.notify(
+              "主题 = catppuccin-"
+                .. choice
+                .. "（仅本次会话；要持久就改 plugins/theme.lua 的 flavour）",
+              vim.log.levels.INFO
+            )
+          end
+        end)
+      end,
+      desc = "切换主题风味（选择框）",
     },
   },
 
