@@ -11,6 +11,10 @@ end
 vim.g.neovide_scale_factor = 1.0
 
 -- 窗口不透明度（0.8 = 80% 不透明，20% 透出桌面）
+-- 由 <leader>uo 选择框**持久化**管理（2026-09-29 起）：选一次就定下来，重启后仍是那个值。
+--   值写在一行文件里：stdpath("state")/neovide-opacity（读写函数见本文件下方）。
+--   下面这行只是「还没选过」时的出厂默认；文件一旦存在就以文件为准。
+--   想回出厂默认：删掉那个文件；或者选 0.80 也一样（文件会留着，值等于默认）。
 vim.g.neovide_opacity = 0.80
 
 -- 光标特效风格
@@ -67,23 +71,65 @@ end, { desc = "Neovide 重置缩放" })
 --   1) <C-=> / <C--> / <C-0> 已经被缩放占了，再占 Ctrl 组合不划算；
 --   2) 不透明度是「挑一档」而不是「微调」，直接选比连按更省事；
 --   3) vim.ui.select 已经被 snacks 接管（全机唯一选择器）⇒ 拿到的是同一套紧凑卡片 UI。
--- ⚠ 只作用于**本次会话**：重启 Neovide 仍读上面的 vim.g.neovide_opacity。
---   要永久固定某个值，改上面那一行（或用 :NeovideConfig，不过实测它打开的
---   ~/.config/neovide/config.toml 在 Linux 上并不被读取，别指望它）。
+-- ✅ 选完会**持久化**：写进 stdpath("state")/neovide-opacity，重启 Neovide 仍是这个值。
+--   之所以要自己存：Neovide 的 neovide-settings.json 只存窗口几何、不存不透明度
+--   （实测：改成 0.5 → 退出 → 重启又回到文件里的默认值）。
+--   （:NeovideConfig 打开的 ~/.config/neovide/config.toml 在 Linux 上不被读取，别指望它。）
 local OPACITY_STEPS = {
   { 1.00, "1.00 —— 完全不透明" },
   { 0.95, "0.95" },
   { 0.90, "0.90" },
   { 0.85, "0.85" },
-  { 0.80, "0.80 —— 默认值（neovide.lua 里那个）" },
+  { 0.80, "0.80 —— 出厂默认" },
   { 0.70, "0.70" },
   { 0.60, "0.60" },
   { 0.50, "0.50 —— 最透（字会开始不好认）" },
 }
 
---- 当前不透明度（Neovide 默认 1.0）
+--- 持久化文件：一行数字。Neovide 自己不存不透明度（neovide-settings.json 只有窗口几何），
+--- 所以这里自己存，实现「选一次就定下来」。
+local STATE_FILE = vim.fs.joinpath(vim.fn.stdpath("state"), "neovide-opacity")
+
+--- 读已保存的值。文件不存在 / 读不出 / 不是 0~1 的数 ⇒ 返回 nil（调用方回落到出厂默认）
+--- @return number?
+local function load_saved_opacity()
+  local f = io.open(STATE_FILE, "r")
+  if not f then
+    return nil
+  end
+  local raw = f:read("*l")
+  f:close()
+  local n = tonumber(raw)
+  if not n or n < 0 or n > 1 then
+    return nil -- 文件被改坏就当没存过，别把非法值喂给 Neovide
+  end
+  return n
+end
+
+--- 保存选择。写失败只警告不抛错（例如目录不可写）
+--- @param value number
+local function save_opacity(value)
+  local f, err = io.open(STATE_FILE, "w")
+  if not f then
+    vim.notify("不透明度已生效，但保存失败：" .. tostring(err), vim.log.levels.WARN)
+    return
+  end
+  f:write(string.format("%.2f\n", value))
+  f:close()
+end
+
+--- 当前不透明度：已保存的值优先，否则用出厂默认（Neovide 自身默认 1.0）
+--- @return number
 local function current_opacity()
-  return vim.g.neovide_opacity or 1.0
+  return load_saved_opacity() or vim.g.neovide_opacity or 1.0
+end
+
+-- 启动即套用已保存的值；没有文件就什么都不做，保持上面那行出厂默认
+do
+  local saved = load_saved_opacity()
+  if saved then
+    vim.g.neovide_opacity = saved
+  end
 end
 
 --- 弹出选择框调不透明度；选中后回车确认、Esc 取消（保持原值）。
@@ -121,8 +167,9 @@ local function pick_opacity()
     local target = choice and choice.value or original
     vim.g.neovide_opacity = target
     if choice and math.abs(target - original) > 0.001 then
+      save_opacity(target) -- 选一次就定下来：写文件，下次启动自动套用
       vim.notify(
-        string.format("不透明度 = %.2f（仅本次会话；要持久改 lua/neovide.lua）", target),
+        string.format("不透明度 = %.2f（已记住，重启后仍是这个值）", target),
         vim.log.levels.INFO
       )
     end
