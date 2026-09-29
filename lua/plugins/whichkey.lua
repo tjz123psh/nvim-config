@@ -36,6 +36,8 @@ return {
       { "<leader>r", group = "重命名/运行" },
       { "<leader>s", group = "Spring Boot" },
       { "<leader>t", group = "终端" },
+      -- Neovide 专属（neovide.lua 注册，终端 nvim 里不存在）；补个组名让兜底弹窗里也成组
+      { "<leader>u", group = "Neovide（仅 GUI）" },
       { "<leader>v", group = "窗口：切分" },
       { "<leader>w", group = "保存/退出" },
       { "<leader>G", group = "代码生成（Java）" },

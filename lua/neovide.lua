@@ -59,3 +59,70 @@ end, { desc = "Neovide 缩小" })
 map("n", "<C-0>", function()
   vim.g.neovide_scale_factor = 1.0
 end, { desc = "Neovide 重置缩放" })
+
+-- ============================================
+-- 不透明度：选择框调（2026-09-29）
+-- ============================================
+-- 为什么用选择框而不是像缩放那样加减键：
+--   1) <C-=> / <C--> / <C-0> 已经被缩放占了，再占 Ctrl 组合不划算；
+--   2) 不透明度是「挑一档」而不是「微调」，直接选比连按更省事；
+--   3) vim.ui.select 已经被 snacks 接管（全机唯一选择器）⇒ 拿到的是同一套紧凑卡片 UI。
+-- ⚠ 只作用于**本次会话**：重启 Neovide 仍读上面的 vim.g.neovide_opacity。
+--   要永久固定某个值，改上面那一行（或用 :NeovideConfig，不过实测它打开的
+--   ~/.config/neovide/config.toml 在 Linux 上并不被读取，别指望它）。
+local OPACITY_STEPS = {
+  { 1.00, "1.00 —— 完全不透明" },
+  { 0.95, "0.95" },
+  { 0.90, "0.90" },
+  { 0.85, "0.85" },
+  { 0.80, "0.80 —— 默认值（neovide.lua 里那个）" },
+  { 0.70, "0.70" },
+  { 0.60, "0.60" },
+  { 0.50, "0.50 —— 最透（字会开始不好认）" },
+}
+
+--- 当前不透明度（Neovide 默认 1.0）
+local function current_opacity()
+  return vim.g.neovide_opacity or 1.0
+end
+
+--- 弹出选择框调不透明度；上下移动即实时预览，回车确认 / Esc 还原
+local function pick_opacity()
+  local original = current_opacity()
+  local items = {}
+  for _, s in ipairs(OPACITY_STEPS) do
+    items[#items + 1] = { value = s[1], label = s[2] }
+  end
+  -- 当前值不在预设档位里（比如手动设过 0.83）时补一个进去，避免框里看不出「现在是多少」
+  local has_current = false
+  for _, it in ipairs(items) do
+    if math.abs(it.value - original) < 0.001 then
+      has_current = true
+      break
+    end
+  end
+  if not has_current then
+    table.insert(items, 1, { value = original, label = string.format("%.2f —— 当前值", original) })
+  end
+
+  vim.ui.select(items, {
+    prompt = "不透明度（上下预览，回车确认，Esc 还原）",
+    format_item = function(it)
+      local mark = math.abs(it.value - original) < 0.001 and "● " or "  "
+      return mark .. it.label
+    end,
+  }, function(choice)
+    -- ⚠ 应用必须写在回调**内部**：vim.ui.select 的回调可能同步也可能异步
+    --   （snacks 走 vim.schedule），写成「select 之后再赋值」会拿旧值把预览顶掉。
+    local target = choice and choice.value or original
+    vim.g.neovide_opacity = target
+    if choice and math.abs(target - original) > 0.001 then
+      vim.notify(
+        string.format("不透明度 = %.2f（仅本次会话；要持久改 lua/neovide.lua）", target),
+        vim.log.levels.INFO
+      )
+    end
+  end)
+end
+
+map("n", "<leader>uo", pick_opacity, { desc = "Neovide 不透明度（选择框）" })

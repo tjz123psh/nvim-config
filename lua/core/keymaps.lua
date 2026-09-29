@@ -16,6 +16,10 @@ map("n", "<Space>", "<Nop>", { desc = "Leader 键" })
 --   <leader>tt/th/tv   toggleterm 终端
 --   <leader>fp         :Projects 项目列表（snacks picker）
 
+-- ⚠ Neovide 专属键位（缩放 <C-=>/<C-->/<C-0>、不透明度 <leader>uo）不在这里：
+--   本文件由 core/init.lua 在启动早期加载，那时 vim.g.neovide 还没赋值，
+--   必须放在 lua/neovide.lua（init.lua 里判断 vim.g.neovide 之后才 require）。
+
 -- jk 退出终端模式回到普通模式（:term 打开的终端）
 -- 注意：终端内 j 后跟 k 会触发退出，注意误触
 map("t", "jk", "<C-\\><C-n>", { desc = "退出终端模式" })
