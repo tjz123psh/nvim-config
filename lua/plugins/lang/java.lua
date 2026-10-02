@@ -353,6 +353,24 @@ return {
         return vim.fs.root(0, { "mvnw", "gradlew", "pom.xml", "build.gradle", "build.gradle.kts" })
       end
 
+      --- 项目用的构建工具：返回 bin（命令行）+ 显示名 + kind；都没有则 nil
+      local function detect_tool(root)
+        if vim.uv.fs_stat(root .. "/build.gradle") or vim.uv.fs_stat(root .. "/build.gradle.kts") then
+          return vim.uv.fs_stat(root .. "/gradlew") and "./gradlew" or "gradle", "Gradle", "gradle"
+        end
+        if vim.uv.fs_stat(root .. "/pom.xml") then
+          return vim.uv.fs_stat(root .. "/mvnw") and "./mvnw" or "mvn", "Maven", "maven"
+        end
+        return nil
+      end
+
+      --- wrapper 从 git 克隆后常常没有可执行位，先补上
+      local function ensure_exec(root, bin)
+        if bin:sub(1, 2) == "./" then
+          vim.fn.setfperm(root .. "/" .. bin:sub(3), "rwxr-xr-x")
+        end
+      end
+
       -- maven_task / gradle_task 任一为 nil 表示该构建工具不支持此操作
       local function run_build(maven_task, gradle_task, extra)
         local root = project_root()
@@ -360,38 +378,119 @@ return {
           vim.notify("未找到项目根目录（需要 pom.xml 或 build.gradle*）", vim.log.levels.ERROR)
           return
         end
-
-        local is_gradle = vim.uv.fs_stat(root .. "/build.gradle") or vim.uv.fs_stat(root .. "/build.gradle.kts")
-        local is_maven = vim.uv.fs_stat(root .. "/pom.xml")
-
-        local bin, task, tool
-        if is_gradle then
-          bin = vim.uv.fs_stat(root .. "/gradlew") and "./gradlew" or "gradle"
-          task = gradle_task
-          tool = "Gradle"
-        elseif is_maven then
-          bin = vim.uv.fs_stat(root .. "/mvnw") and "./mvnw" or "mvn"
-          task = maven_task
-          tool = "Maven"
-        else
+        local bin, tool, kind = detect_tool(root)
+        if not bin then
           vim.notify("项目根目录下既没有 pom.xml 也没有 build.gradle*", vim.log.levels.ERROR)
           return
         end
-
+        local task = kind == "gradle" and gradle_task or maven_task
         if not task then
           vim.notify("当前项目用 " .. tool .. "，该操作没有对应任务", vim.log.levels.WARN)
           return
         end
-
-        -- wrapper 从 git 克隆后常常没有可执行位，先补上
-        if bin:sub(1, 2) == "./" then
-          vim.fn.setfperm(root .. "/" .. bin:sub(3), "rwxr-xr-x")
-        end
+        ensure_exec(root, bin)
 
         local cmdline = bin .. " " .. task .. (extra or "")
-        -- exec(cmd, num, size, dir, direction, ...) 是位置参数，不是 table
+        -- exec(cmd, num, size, dir, direction, name, go_back) 是位置参数，不是 table
         -- 用 2 号终端，避免和 <leader>tt 的 1 号交互终端抢位置；保留终端焦点查看结果
         require("toggleterm").exec(cmdline, 2, nil, root, "horizontal", "Java 测试", false)
+      end
+
+      -- ── Spring Boot 运行：先认主类，再决定跑哪个 ──────
+      -- 一个项目多个 main（双进程 Api + Worker）时不能盲跑 spring-boot:run：构建工具会直接报
+      -- "Unable to find a single main class from the following candidates [...]"（2026-10-02 实测）。
+      -- 所以先扫 src/main/java 下所有带 main 的类：只有一个就直接启动，多个弹选择框。
+      -- 扫描与参数解析在 core/java_main.lua（纯逻辑，可 headless 断言）。
+      local java_main = require("core.java_main")
+
+      -- 每个主类固定一个终端槽：2 号是 <leader>th 的水平终端，3 号留给 <leader>tv 的垂直终端。
+      -- 同一个类永远落同一个槽 ⇒ 换个类启动会开新终端，双进程能同时跑。
+      -- ⚠ 不能都挤 2 号：toggleterm 的 exec 同 id 是复用同一个 shell，第二次会把命令行当输入
+      --   敲进正在运行的进程里（看着像跑了，其实什么都没发生）。
+      local RUN_SLOTS = { 2, 4, 5, 6, 7, 8, 9 }
+      local function run_slot(idx)
+        return RUN_SLOTS[(idx - 1) % #RUN_SLOTS + 1]
+      end
+
+      --- 启动一个主类；idx（1 起）决定终端槽，multi = 这是多入口项目
+      local function spring_boot_run(root, main, idx, multi)
+        local bin, _, kind = detect_tool(root)
+        if not bin then
+          vim.notify("项目根目录下既没有 pom.xml 也没有 build.gradle*", vim.log.levels.ERROR)
+          return
+        end
+        local plan = java_main.run_args(root, kind, main.fqcn, multi)
+        if plan.note then
+          vim.notify(plan.note, vim.log.levels.WARN)
+        end
+        ensure_exec(root, bin)
+
+        local slot = run_slot(idx)
+        local cmdline = bin .. " " .. (kind == "gradle" and "bootRun" or "spring-boot:run") .. plan.args
+        -- 该槽里可能还挂着上一次启动的应用：先送一个 Ctrl-C（应用在跑 = 优雅停机，停在提示符
+        -- 下只是多一行 ^C），再发命令行 —— 否则第二条命令会被写进旧进程的 stdin。
+        -- 于是「同一个类连按两次 <leader>sr」= 重启。
+        local ctrl_c = string.char(3)
+        -- ⚠ 必须 include_hidden=true：终端被 <leader>th 关掉后只是 hidden，进程还在跑，
+        --   而 toggleterm 的 exec 复用同一个 Terminal（terminal.lua:203），漏掉这个 Ctrl-C
+        --   就又会把命令行敲进旧进程的 stdin。
+        local term = require("toggleterm.terminal").get(slot, true)
+        if term and term.job_id then
+          pcall(vim.fn.chansend, term.job_id, ctrl_c)
+        end
+        require("toggleterm").exec(cmdline, slot, nil, root, "horizontal", "Spring: " .. main.simple, false)
+        vim.notify("启动 " .. main.fqcn .. "（终端 " .. slot .. "）：" .. cmdline, vim.log.levels.INFO)
+      end
+
+      --- <leader>sr 入口：扫主类 → 只有一个直接跑，多个弹选择框
+      local function spring_boot_run_pick()
+        local root = project_root()
+        if not root then
+          vim.notify("未找到项目根目录（需要 pom.xml 或 build.gradle*）", vim.log.levels.ERROR)
+          return
+        end
+        local mains = java_main.scan(root)
+        if #mains == 0 then
+          vim.notify(
+            "在 " .. root .. "/src/main/java 下没扫到带 main 的类（只扫 main 源集）",
+            vim.log.levels.ERROR
+          )
+          return
+        end
+        if #mains == 1 then
+          -- 只有一个入口：不打扰，直接启动
+          spring_boot_run(root, mains[1], 1, false)
+          return
+        end
+        local info = java_main.main_flag(root)
+        local default = info.flag and java_main.default_main(root, info.flag) or nil
+        local items = {}
+        for i, m in ipairs(mains) do
+          items[i] = {
+            fqcn = m.fqcn,
+            simple = m.simple,
+            pkg = m.pkg,
+            idx = i,
+            slot = run_slot(i),
+            is_default = m.fqcn == default,
+          }
+        end
+        vim.ui.select(items, {
+          prompt = "选择要启动的主类（共 " .. #items .. " 个入口）",
+          format_item = function(m)
+            return string.format(
+              "%s  %s  [终端 %d]%s",
+              m.simple,
+              m.pkg ~= "" and m.pkg or "(默认包)",
+              m.slot,
+              m.is_default and "  ← pom 默认" or ""
+            )
+          end,
+        }, function(choice)
+          if choice then
+            spring_boot_run(root, choice, choice.idx, true)
+          end
+        end)
       end
 
       -- ── 调试：优先用 jdtls 扫出来的主类，扫不到才回退手工输入 ──
@@ -671,10 +770,14 @@ return {
         -- 用 gA 而不是 gU：gU 是内置的「转大写」操作符，覆盖它会让 Java 里 gU{motion} 失效
         vim.keymap.set("n", "gA", jdtls.super_implementation, d("跳转到父类/接口实现"))
 
-        -- Spring Boot
-        vim.keymap.set("n", "<leader>sr", function()
-          run_build("spring-boot:run", "bootRun")
-        end, d("Spring Boot: 运行"))
+        -- Spring Boot（2026-10-02 起改成「自动认主类」：多入口项目盲跑 spring-boot:run 会直接报
+        -- Unable to find a single main class，逻辑与终端槽见上方 spring_boot_run_pick）
+        vim.keymap.set(
+          "n",
+          "<leader>sr",
+          spring_boot_run_pick,
+          d("Spring Boot: 运行（自动识别主类，多个则选择）")
+        )
 
         -- Maven / Gradle 生命周期
         vim.keymap.set("n", "<leader>mc", function()
