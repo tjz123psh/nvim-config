@@ -178,7 +178,7 @@ local sections = {
       },
       {
         "<leader>sr",
-        "Spring Boot: 运行（自动识别主类：多个弹选择框，只有一个直接启动；每个主类一个终端）",
+        "Spring Boot: 运行（自动识别主类：多个弹选择框，含「全部启动」；每个主类一个终端，已在跑的标 ●）",
       },
       { "<leader>sp", "Spring Boot 向导（11 步可搜索选择）" },
       { "<leader>Gc / Gi / Ge / Gr", "生成 Class / Interface / Enum / Record" },

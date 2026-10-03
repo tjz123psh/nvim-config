@@ -412,6 +412,42 @@ return {
         return RUN_SLOTS[(idx - 1) % #RUN_SLOTS + 1]
       end
 
+      --- 槽里的 toggleterm 终端（必须 include_hidden：被 <leader>th 关掉后只是 hidden，进程还在跑）
+      local function slot_term(slot)
+        return require("toggleterm.terminal").get(slot, true)
+      end
+
+      --- 槽里是不是真有东西在跑？toggleterm 的终端是常驻 shell，光看 job 活着没用。
+      --- Linux 上读 /proc/<shell_pid>/task/<shell_pid>/children：空 = 停在提示符。
+      --- 读不到 /proc 就返回 true（保守：宁可多发一个 Ctrl-C，也别把命令行敲进旧进程的 stdin）。
+      local function slot_busy(slot)
+        local term = slot_term(slot)
+        local job = term and term.job_id
+        if not job then
+          return false
+        end
+        local ok, pid = pcall(vim.fn.jobpid, job)
+        if not ok or not pid or pid == 0 then
+          return false
+        end
+        local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
+        if not f then
+          return true
+        end
+        local children = f:read("*l")
+        f:close()
+        return children ~= nil and children ~= ""
+      end
+
+      --- 槽里的终端文本（用来判断应用起来没有）
+      local function slot_text(slot)
+        local term = slot_term(slot)
+        if not term or not term.bufnr or not vim.api.nvim_buf_is_valid(term.bufnr) then
+          return ""
+        end
+        return table.concat(vim.api.nvim_buf_get_lines(term.bufnr, 0, -1, false), "\n")
+      end
+
       --- 启动一个主类；idx（1 起）决定终端槽，multi = 这是多入口项目
       local function spring_boot_run(root, main, idx, multi)
         local bin, _, kind = detect_tool(root)
@@ -427,19 +463,63 @@ return {
 
         local slot = run_slot(idx)
         local cmdline = bin .. " " .. (kind == "gradle" and "bootRun" or "spring-boot:run") .. plan.args
-        -- 该槽里可能还挂着上一次启动的应用：先送一个 Ctrl-C（应用在跑 = 优雅停机，停在提示符
-        -- 下只是多一行 ^C），再发命令行 —— 否则第二条命令会被写进旧进程的 stdin。
-        -- 于是「同一个类连按两次 <leader>sr」= 重启。
-        local ctrl_c = string.char(3)
-        -- ⚠ 必须 include_hidden=true：终端被 <leader>th 关掉后只是 hidden，进程还在跑，
-        --   而 toggleterm 的 exec 复用同一个 Terminal（terminal.lua:203），漏掉这个 Ctrl-C
-        --   就又会把命令行敲进旧进程的 stdin。
-        local term = require("toggleterm.terminal").get(slot, true)
-        if term and term.job_id then
-          pcall(vim.fn.chansend, term.job_id, ctrl_c)
+        -- 槽里若真有东西在跑，先送一个 Ctrl-C（优雅停机）再发命令行 —— 否则 toggleterm 的 exec
+        -- 复用同一个 shell，第二条命令会被写进旧进程的 stdin（看着像跑了，其实什么都没发生）。
+        -- 于是「同一个类连按两次 <leader>sr」= 重启；槽空着就不发，省掉一行多余的 ^C。
+        local term = slot_term(slot)
+        local restarting = slot_busy(slot)
+        if restarting and term and term.job_id then
+          pcall(vim.fn.chansend, term.job_id, string.char(3))
         end
         require("toggleterm").exec(cmdline, slot, nil, root, "horizontal", "Spring: " .. main.simple, false)
-        vim.notify("启动 " .. main.fqcn .. "（终端 " .. slot .. "）：" .. cmdline, vim.log.levels.INFO)
+        vim.notify(
+          (restarting and "重启 " or "启动 ")
+            .. main.simple
+            .. "（终端 "
+            .. slot
+            .. "）："
+            .. cmdline
+            .. (multi and "　另一个入口：再按 <leader>sr（或选「全部启动」）" or ""),
+          vim.log.levels.INFO
+        )
+      end
+
+      --- 依次启动多个主类：双进程项目一个动作全拉起来
+      --- 逐个等前一个真起来了再起下一个 —— 两个 maven 同时编译同一个 target/ 会打架。
+      --- 判据 = 终端里出现 "Started <类名>" / 失败字样 / 等满 60 秒（非 Spring 应用不会有 Started 行）。
+      --- 已经在跑的入口跳过（想重启就单独选那个类，选它会先 Ctrl-C 再起）。
+      local function spring_boot_run_all(root, mains)
+        local function step(n)
+          if n > #mains then
+            vim.notify("已依次启动 " .. #mains .. " 个入口（每个入口一个终端）", vim.log.levels.INFO)
+            return
+          end
+          local m = mains[n]
+          local slot = run_slot(n)
+          if slot_busy(slot) then
+            vim.notify(m.simple .. " 已在终端 " .. slot .. " 跑着，跳过", vim.log.levels.INFO)
+            step(n + 1)
+            return
+          end
+          spring_boot_run(root, m, n, true)
+          local waited = 0
+          local function tick()
+            waited = waited + 1
+            local text = slot_text(slot)
+            if
+              text:find("Started " .. m.simple, 1, true)
+              or text:find("APPLICATION FAILED TO START", 1, true)
+              or text:find("BUILD FAILURE", 1, true)
+              or waited >= 60
+            then
+              step(n + 1)
+            else
+              vim.defer_fn(tick, 1000)
+            end
+          end
+          vim.defer_fn(tick, 1000)
+        end
+        step(1)
       end
 
       --- <leader>sr 入口：扫主类 → 只有一个直接跑，多个弹选择框
@@ -466,28 +546,47 @@ return {
         local default = info.flag and java_main.default_main(root, info.flag) or nil
         local items = {}
         for i, m in ipairs(mains) do
+          local slot = run_slot(i)
           items[i] = {
+            kind = "one",
             fqcn = m.fqcn,
             simple = m.simple,
             pkg = m.pkg,
             idx = i,
-            slot = run_slot(i),
+            slot = slot,
             is_default = m.fqcn == default,
+            -- ● 已在跑：双进程项目最容易犯的错就是第二次又选了同一个（那会变成重启），标出来
+            running = slot_busy(slot),
           }
         end
+        -- 多入口才给「全部启动」：一个动作把双进程都拉起来（按顺序，等前一个起来再起下一个）
+        items[#items + 1] = {
+          kind = "all",
+          simple = "全部启动",
+          detail = "依次启动上面 " .. #mains .. " 个入口，每个占一个终端",
+        }
         vim.ui.select(items, {
-          prompt = "选择要启动的主类（共 " .. #items .. " 个入口）",
+          prompt = "选择要启动的主类（共 " .. #mains .. " 个入口）",
           format_item = function(m)
+            if m.kind == "all" then
+              return "▶ " .. m.simple .. "  " .. m.detail
+            end
             return string.format(
-              "%s  %s  [终端 %d]%s",
+              "%s  %s  [终端 %d]%s%s",
               m.simple,
               m.pkg ~= "" and m.pkg or "(默认包)",
               m.slot,
-              m.is_default and "  ← pom 默认" or ""
+              m.is_default and "  ← pom 默认" or "",
+              m.running and "  ● 已在跑" or ""
             )
           end,
         }, function(choice)
-          if choice then
+          if not choice then
+            return
+          end
+          if choice.kind == "all" then
+            spring_boot_run_all(root, mains)
+          else
             spring_boot_run(root, choice, choice.idx, true)
           end
         end)
