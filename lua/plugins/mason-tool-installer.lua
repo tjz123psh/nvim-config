@@ -1,6 +1,6 @@
 -- ============================================
--- Mason 工具自动安装器
--- 在 :Mason 安装完成后自动安装预配置的工具列表
+-- Mason 手动工具清单（含 LSP 服务器）
+-- 手动 :MasonToolsInstall 补齐，:MasonToolsUpdate 更新；启动时不检查或下载。
 -- ============================================
 
 return {
@@ -18,7 +18,19 @@ return {
     --   （2026-09-25 审查 F15：auto_update=false、工具都装好了也不代表不刷新注册表）。
     --   这里关掉启动检查，需要时手动执行：:MasonToolsInstall 补齐缺失工具、:MasonToolsUpdate 更新。
     run_on_start = false,
+    -- 清单全部使用 Mason 包名；关闭别名集成，避免 require 把安装插件拖回启动期。
+    integrations = { ["mason-lspconfig"] = false },
     ensure_installed = {
+      "clangd",
+      "lua-language-server",
+      "jdtls",
+      "gopls",
+      "rust-analyzer",
+      "html-lsp",
+      "css-lsp",
+      "json-lsp",
+      "yaml-language-server",
+      "marksman",
       "codelldb", -- C/C++/Rust 调试器（DAP 用）
       "java-debug-adapter", -- Java 调试器（DAP 用）
       "java-test", -- Java 测试运行器（DAP 用）

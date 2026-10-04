@@ -1,7 +1,7 @@
 -- ============================================
 -- LSP（语言服务器协议）配置
 -- LSP 提供代码补全、错误检查、跳转定义等功能
--- 这里配置 nvim-lspconfig + mason-lspconfig
+-- 这里配置 nvim-lspconfig；手动安装入口见 plugins/mason-lspconfig.lua
 -- ============================================
 
 return {
@@ -14,31 +14,7 @@ return {
         PATH = "prepend",
       },
     },
-    -- 让 mason 自动安装 LSP 服务器（但不自动配置，由下方 config 接管）
-    {
-      "williamboman/mason-lspconfig.nvim",
-      dependencies = { "williamboman/mason.nvim" },
-      opts = {
-        ensure_installed = {
-          "clangd", -- C/C++
-          "lua_ls", -- Lua（Neovim 配置用）
-          "jdtls", -- Java
-          "gopls", -- Go
-          "rust_analyzer", -- Rust
-          "html", -- HTML
-          "cssls", -- CSS
-          "jsonls", -- JSON
-          "yamlls", -- YAML
-          "marksman", -- Markdown
-          "lemminx", -- XML / pom.xml
-        },
-        automatic_enable = false, -- 手动管理，跳过自动启用
-      },
-      config = function(_, opts)
-        require("mason").setup({ PATH = "prepend" })
-        require("mason-lspconfig").setup(opts)
-      end,
-    },
+    -- mason-lspconfig 仅在手动 LspInstall/LspUninstall 时加载，见 plugins/mason-lspconfig.lua。
     -- 补全引擎（需要 LSP 的能力信息）
     "saghen/blink.cmp",
     -- lua_ls 的「Neovim 环境」来源（2026-09-28 审查 A01 落地）。

@@ -47,6 +47,7 @@ return {
       { "<leader>o", group = "整理 import" },
       { "<leader>R", group = "重构：提取" },
 
+      { "ZQ", desc = "放弃当前窗口修改并关闭（不自动保存）" },
       { "g", group = "g 前缀 —— 跳转、转换、文件" },
       -- Neovim 内置注释（descriptions 是英文的 "Toggle comment*"，这里覆盖成中文）
       { "gc", desc = "注释/取消注释（可视、可配 motion）" },

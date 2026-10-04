@@ -60,6 +60,10 @@ map("n", "<leader>fr", function()
   require("snacks").picker.recent()
 end, { desc = "最近打开的文件" })
 map("n", "<leader>q", "<cmd>q<cr>", { desc = "关闭当前窗口" })
+-- ZQ 不经过命令行事件，显式进入与 :q! 相同的自动保存保护范围。
+map("n", "ZQ", function()
+  require("core.autocmds").quit_without_save()
+end, { desc = "放弃当前窗口修改并关闭（不自动保存）" })
 
 -- 报错逃生口：noice 接管 vim.notify 后，LSP/插件报错只闪一次通知，`:messages` 里查不到
 map("n", "<leader>he", "<cmd>Noice errors<cr>", { desc = "最近的报错（noice 历史）" })

@@ -58,64 +58,84 @@ local function is_savable(buf)
   return vim.api.nvim_buf_get_name(buf) ~= "" and bo.modified
 end
 
-local QUIT_NAMES = {
-  q = true,
-  qu = true,
+-- 原生解析器负责命令缩写、计数和 :silent 等修饰符，不自己维护缩写白名单。
+-- 只处理直接的 Ex 退出命令；插件/Lua 需要丢弃退出时可调用本模块的 quit_without_save。
+local QUIT_COMMANDS = {
   quit = true,
-  qa = true,
   qall = true,
-  quita = true,
   quitall = true,
-  cq = true,
   cquit = true,
+  wq = true,
+  wqall = true,
+  exit = true,
+  xit = true,
+  xall = true,
 }
-
---- 这条命令行是不是带 ! 的退出（:q! / :qa! / :3q! / :cq）
---- ⚠ 必须定义在下面那些 autocmd **之前**：Lua 的 local 在声明点才进作用域，
----   写在后面的话闭包里引用到的是全局 nil（本轮实测踩过一次，:q! 仍然被保存）。
-local function is_bang_quit(c)
-  if c == "" then
-    return false
+local function quit_commands(line)
+  local commands = {}
+  while line ~= "" do
+    local ok, cmd = pcall(vim.api.nvim_parse_cmd, line, {})
+    if not ok then
+      break -- 无效命令不应让自动命令本身报错。
+    end
+    if QUIT_COMMANDS[cmd.cmd] then
+      commands[#commands + 1] = {
+        name = cmd.cmd,
+        discard = cmd.cmd == "cquit" or (cmd.bang and (cmd.cmd == "quit" or cmd.cmd == "qall" or cmd.cmd == "quitall")),
+      }
+    end
+    local nextcmd = cmd.nextcmd or ""
+    if nextcmd == line then
+      break
+    end
+    line = nextcmd
   end
-  c = vim.trim(c):gsub("^%d+%s*", "") -- 去掉 :3q! 里的计数
-  local name, bang = c:match("^(%a+)(!?)$")
-  if name == nil then
-    return false
-  end
-  name = name:lower()
-  -- :cq / :cquit 不带 ! 也是"放弃修改"退出（git 用它中止提交），要一并算上
-  if name == "cq" or name == "cquit" then
-    return true
-  end
-  return bang == "!" and QUIT_NAMES[name] == true
+  return commands
 end
 
--- ⚠ 用户明确"放弃修改"时不能自动保存（2026-09-25 审查 F01）：
---   QuitPre/VimLeavePre 本身不区分 :q 与 :q!（实测 v:cmdbang 恒为 0、getcmdline 为空），
---   所以在 CmdlineLeave 里记下刚执行的那条命令行，退出链只看这一次的记录。
--- 状态要"粘住"整个退出链（QuitPre → BufLeave → VimLeavePre 都会触发保存），
--- 直到用户开始敲下一条命令才复位。
-local discard_pending = false
+local pending_quits = {}
+local discard_window -- 本次正在关闭的窗口；WinClosed 后不再阻止剩余会话的保存。
+local discard_exit = false -- 最后一次 QuitPre 的意图，供进程退出时的 VimLeavePre 使用。
+local protected_discard = 0 -- ZQ 的同步调用范围；即使其它自动命令 vim.wait，也不能提前清除。
+local function clear_quit_state()
+  pending_quits = {}
+  discard_window = nil
+  discard_exit = false
+end
+
 vim.api.nvim_create_autocmd("CmdlineEnter", {
   group = augroup,
-  desc = "开始输入新命令：清除上一次的放弃标记",
-  callback = function()
-    discard_pending = false
-  end,
+  callback = clear_quit_state,
+  desc = "新命令不继承旧的退出意图",
 })
 vim.api.nvim_create_autocmd("CmdlineLeave", {
   group = augroup,
-  desc = "记住刚执行的命令行（用于识别 :q! / :qa! 的放弃语义）",
+  pattern = ":", -- 搜索命令行里的 q! 不是退出命令。
   callback = function()
-    -- ⚠ <Esc> / <C-c> 中止命令行时也会触发本事件，且此时 getcmdline() 仍返回已敲的内容、
-    --   vim.v.event.abort == true。不判 abort 的话，敲了 :q! 又反悔按 Esc 会把
-    --   discard_pending 粘成 true，之后所有自动保存被静默 return（数据不落盘）。
-    --   2026-09-28 实测：Esc 后切 buffer 不写盘，对照组写盘。
-    if vim.v.event.abort then
-      return
+    if not vim.v.event.abort then
+      pending_quits = quit_commands(vim.fn.getcmdline())
     end
-    discard_pending = is_bang_quit(vim.fn.getcmdline())
   end,
+  desc = "按原生语法记录退出命令及丢弃意图",
+})
+vim.api.nvim_create_autocmd("WinClosed", {
+  group = augroup,
+  callback = function(ev)
+    if tonumber(ev.match) == discard_window then
+      discard_window = nil
+    end
+  end,
+  desc = "目标窗口关闭后，立即恢复其余窗口的自动保存",
+})
+vim.api.nvim_create_autocmd("SafeState", {
+  group = augroup,
+  callback = function()
+    if protected_discard == 0 then
+      clear_quit_state()
+    end
+  end,
+  -- SafeState 不在执行命令/映射中触发；不能用 schedule 代替，vim.wait 会提前运行它。
+  desc = "命令执行完且回到输入等待时清理退出状态（含失败的退出）",
 })
 
 local saving = false -- 重入保护：写盘时可能触发 BufLeave/退出类事件
@@ -129,7 +149,7 @@ local function autosave_current_buf()
   if vim.g.core_autosave == false or saving then
     return
   end
-  if discard_pending then
+  if discard_window or protected_discard > 0 then
     return
   end
 
@@ -147,11 +167,6 @@ local function autosave_all_bufs()
   if vim.g.core_autosave == false or saving then
     return
   end
-  -- :q! / :qa! / :cq 是"放弃修改"：这里若照常保存，用户以为丢掉的内容会落盘
-  if discard_pending then
-    return
-  end
-
   saving = true
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if is_savable(buf) then
@@ -167,8 +182,41 @@ vim.api.nvim_create_autocmd({ "BufLeave", "FocusLost" }, {
   callback = autosave_current_buf,
 })
 
-vim.api.nvim_create_autocmd({ "QuitPre", "VimLeavePre" }, {
+vim.api.nvim_create_autocmd("QuitPre", {
   group = augroup,
-  desc = "退出前保存所有被修改的普通文件缓冲区",
-  callback = autosave_all_bufs,
+  callback = function()
+    local intent = protected_discard == 0 and table.remove(pending_quits, 1) or nil
+    discard_exit = protected_discard > 0 or (intent and intent.discard) or false
+    discard_window = discard_exit and vim.api.nvim_get_current_win() or nil
+    -- 每次 QuitPre 单独决定，:q! | q 的第二个普通退出仍应保存。
+    if not discard_exit then
+      autosave_all_bufs()
+    end
+  end,
+  desc = "普通退出保存全部修改；丢弃退出不自动写盘",
 })
+vim.api.nvim_create_autocmd("VimLeavePre", {
+  group = augroup,
+  callback = function()
+    -- :cquit 不触发 QuitPre，需在最终退出阶段读取它的意图。
+    if pending_quits[1] and pending_quits[1].name == "cquit" then
+      discard_exit = true
+    end
+    if not discard_exit and protected_discard == 0 then
+      autosave_all_bufs()
+    end
+  end,
+  desc = "进程退出时保留本次明确的保存/丢弃语义",
+})
+
+return {
+  quit_without_save = function()
+    protected_discard = protected_discard + 1
+    local ok, err = pcall(vim.cmd.quit, { bang = true })
+    protected_discard = protected_discard - 1
+    discard_window, discard_exit = nil, false
+    if not ok then
+      error(err, 0)
+    end
+  end,
+}
