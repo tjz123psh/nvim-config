@@ -15,6 +15,9 @@ map("n", "<Space>", "<Nop>", { desc = "Leader 键" })
 --   <leader>e          neo-tree 文件树
 --   <leader>tt/th/tv   toggleterm 终端
 --   <leader>fp         :Projects 项目列表（snacks picker）
+-- 语言缓冲区共享键由 core/lsp_on_attach.lua 注册（不是全局空壳）：
+--   <leader>ot         整理导入（Java 保留 jdtls，其余请求标准 LSP 动作）
+--   <leader>Ra         可用重构列表（普通/可视模式）；Java 的 Rv/Rc/Rm/RV 继续保留
 
 -- ⚠ Neovide 专属键位（缩放 <C-=>/<C-->/<C-0>、不透明度 <leader>uo）不在这里：
 --   本文件由 core/init.lua 在启动早期加载，那时 vim.g.neovide 还没赋值，
@@ -223,15 +226,11 @@ map("n", "<leader>j", "mzJ`z", { desc = "合并下一行", silent = true })
 local cheatsheet = require("core.cheatsheet")
 map("n", "<leader>hk", cheatsheet.show, { desc = "快捷键速查" })
 
--- Markdown 预览（md-render.nvim）：渲染到**独立窗口**，编辑缓冲区原样不动。
--- 试过的其它路线：render-markdown / markview（就地渲染，会改编辑视图，透明主题下还有色带）、
--- markdown-preview.nvim（浏览器）。这一版是"源码 + 渲染"并存，读的时候不影响改。
+-- Markdown 编辑区美化：只切换当前 Markdown 缓冲区，不再打开独立预览窗。
 map("n", "<leader>Mp", function()
-  require("md-render").preview.show()
-end, { desc = "Markdown：浮动窗预览（开关）" })
-map("n", "<leader>Mt", function()
-  require("md-render").preview.show_tab()
-end, { desc = "Markdown：标签页预览（开关）" })
-map("n", "<leader>Ms", function()
-  require("md-render").preview.split()
-end, { desc = "Markdown：左右分屏（源码 + 渲染）" })
+  if vim.bo.filetype ~= "markdown" then
+    vim.notify("请先打开 Markdown 文件", vim.log.levels.INFO)
+    return
+  end
+  require("render-markdown").buf_toggle()
+end, { desc = "Markdown：开关当前文档美化" })

@@ -1,26 +1,10 @@
 -- ============================================
--- Spring Boot 项目向导（v6 单卡片 · soft 灰蓝卡；:PickerSkin pink 时保留原粉系）
--- ============================================
--- 与 IDEA New Project 对话框对齐的 11 步向导：
---   snacks.picker  全部选择步骤（自绘自适应单卡片：input + list + 底部说明行）
---   snacks.input    文本输入（vim.ui.input 的唯一提供者；配色组见 SNACKS_HL）
---
--- v6 变更（相对 v5，按用户 noice 截图推倒重构）：
---   1. 弃用 default/select 预设，自绘 vertical box 布局：
---      边框画在 box 层；winhighlight 走 snacks 链接链的基座组
---      （SnacksPickerBorder/Title/…），启动时定义实色即可全程截胡
---   2. 右侧预览 → 底部 3 行说明区（preview 窗逐字换行 + 分段着色）
---   3. 单选步行只显示 id，hint 挪到底部行；确认步底部行 = 摘要 → 路径
---   4. 配色直写 catppuccin-mocha；v6.1 面板透明（bg=NONE、无 backdrop），同其它浮窗
---
--- 放在 core/ 而非 plugins/：core/lazy.lua 用 { import = "plugins" }，
--- lazy 会把 plugins/ 下每个 .lua 当 spec 递归加载，本文件返回的是模块。
+-- Spring Boot 项目向导：11 步选择与输入，单卡片布局
+-- Snacks 负责选择/输入，core.ui 负责 soft / pink 配色。
+-- 本文件保留向导流程、卡片布局及会话内动画，不作为插件 spec 加载。
 -- ============================================
 
 local M = {}
-
--- ── 1. 主题与共享文案（改样式只动这里） ──
--- （v3 时代的 UI 常量表 / QUICK_TIPS / TOTAL_STEPS 全部零引用，v6.4 清理）
 
 -- 前向声明：load_meta（异步版）在文件后段才定义的 bridge 之前，
 -- Lua local 作用域不到 → 直接跑会把 bridge 当 nil 全局，flow 静默死掉
@@ -238,101 +222,15 @@ end
 -- 4. UI 桥与视觉主题
 -- ============================================
 
--- ===== noice 同款粉系主题（catppuccin-mocha v5）=====
--- 设计基准：底 #1E1E2E、边框 #F38BA8、选中 #F5C2E7、徽章 #FAB387。
--- 终端物理限制（没有透明/发光渲染），用深色面板、下划线、字重近似 noice。
--- 边框通过 timer 在粉色阶之间缓慢呼吸；圆角用 ╭╮╰╯ 字符。
--- v5：改用 noice 通知弹框那一套（catppuccin-mocha 粉系），和编辑器主题同族
-local NEON = {
-  bg = "#1E1E2E", -- catppuccin base：noice 弹框同款底
-  border = "#F38BA8", -- noice 粉
-  borderB = "#F5A0B8",
-  borderC = "#E893AC",
-  sun = "#F5C2E7", -- 选中行文字（catppuccin pink）
-  white = "#CDD6F4", -- 主文字（text）
-  grey = "#A6ADC8", -- 次文字（subtext1）
-  dim = "#585B70", -- 未选中 □ / 空态（overlay0）
-  magenta = "#CBA6F7", -- 过滤匹配词 / 计数器（catppuccin mauve）
-  amber = "#FAB387", -- 分组徽章 / 行内 hint（peach）
-  green = "#A6E3A1", -- ❯ 提示符（catppuccin green）
-  rowbg = "#313244", -- （弃用）旧选中行底
-}
-
-local HL_DEFS = {
-  { "WizBg", { bg = "NONE" } }, -- 透明底：和编辑器其它浮窗同风格（kitty 全局透明度）
-  { "WizBorder", { fg = NEON.border } },
-  { "WizTitle", { fg = NEON.border, bold = true } },
-  { "WizCursorLine", { bg = NEON.rowbg, fg = NEON.sun, bold = true, underline = true, sp = NEON.border } },
-  { "WizKey", { fg = NEON.white } },
-  { "WizSel", { fg = NEON.sun, bold = true } },
-  { "WizBadge", { fg = NEON.amber, bold = true } },
-  { "WizHint", { fg = NEON.grey } },
-  { "WizDim", { fg = NEON.dim } },
-  { "WizMagenta", { fg = NEON.magenta, bold = true } },
-  { "WizMarker", { fg = NEON.border, bold = true } }, -- 行首 ▸ 指针
-  { "WizPeach", { fg = NEON.amber } }, -- 行内 hint（不加粗）
-  { "WizMenuSel", { fg = NEON.sun, bold = true } }, -- dressing 菜单当前行（纯文字色）
-}
-
--- 根治「边框一直是主题蓝」：snacks 的 winhighlight 不用我们给的字符串
--- （init_layout 会 force 覆盖），而是用 winhl() 给每个窗口生成链接组：
---   FloatBorder → SnacksPickerListBorder → SnacksPickerBorder → FloatBorder
--- 这些链接全部以 default=true 注册。所以只要启动时先把「基座组」定义成
--- 非 default 的实色，snacks 的默认注册就永远盖不掉我们，整条链变色。
-local SNACKS_HL = {
-  { "SnacksPicker", { bg = "NONE", fg = NEON.white } }, -- NormalFloat 基座：透明底
-  { "SnacksPickerBorder", { fg = NEON.border } }, -- 所有窗口边框
-  -- 下面几个是 soft 皮肤里被显式设成实底/灰边的组（非 default）⇒ 不一起写的话，
-  -- 切到 pink 会出现"粉标题 + 灰边框 + 实底面板"的混搭（2026-09-25 实测）。
-  { "SnacksPickerBoxBorder", { fg = NEON.border } },
-  { "SnacksPickerListBorder", { fg = NEON.border } },
-  { "SnacksPickerInputBorder", { fg = NEON.border } },
-  { "SnacksPickerInputTitle", { fg = NEON.border, bold = true } },
-  -- 通用浮窗（noice 命令行 / LSP 悬浮 / which-key / dap-ui / blink 文档）也一起粉
-  { "FloatBorder", { fg = NEON.border } },
-  { "FloatTitle", { fg = NEON.border, bold = true } },
-  { "NormalFloat", { bg = "NONE" } },
-  { "SnacksInputBorder", { fg = NEON.border } },
-  { "SnacksInputTitle", { fg = NEON.border, bold = true } },
-  { "SnacksInputNormal", { bg = "NONE" } },
-  { "NoiceCmdlinePopup", { bg = "NONE" } },
-  { "NoiceCmdlinePopupBorder", { fg = NEON.border } },
-  { "SnacksPickerBox", { bg = "NONE" } },
-  { "SnacksPickerList", { bg = "NONE" } },
-  { "SnacksPickerInput", { bg = "NONE" } },
-  { "SnacksPickerTitle", { fg = NEON.border, bold = true } }, -- 窗口标题
-  -- ⚠ SnacksPicker*CursorLine 不在此列：它们是全局基座（snacks 所有 picker
-  -- 的当前行都链过来），常驻覆盖会杀掉其它 picker 的选中行高亮。
-  -- 向导会话内的临时压制见 TRANSIENT_HL（随 start/stop_pulse 应用与还原）。
-  { "SnacksPickerFooter", { fg = NEON.dim } },
-  { "SnacksTitle", { fg = NEON.border, bold = true } }, -- box 边框窗标题
-  { "SnacksNormal", { bg = "NONE", fg = NEON.white } }, -- box 边框窗：透明底
-  { "SnacksNormalNC", { bg = "NONE", fg = NEON.white } },
-  { "SnacksPickerTotals", { fg = NEON.magenta, bold = true } }, -- 计数器 mauve
-  { "SnacksPickerPrompt", { fg = NEON.green, bold = true } }, -- ❯ 提示符 green
-  { "SnacksPickerMatch", { fg = NEON.magenta, bold = true } }, -- 过滤匹配词
-  { "SnacksPickerSelected", { fg = NEON.border, bold = true } }, -- ● 已选
-  { "SnacksPickerUnselected", { fg = NEON.dim } }, -- ○ 未选
-}
-
+-- 共享色板由 core.ui 管理；这里只保留向导会话内的临时高亮与动画。
+local ui = require("core.ui")
 local function define_highlights()
-  -- soft 皮肤（默认）：整套 Wiz* + 共享基座都由 plugins/snacks.lua 的 apply_skin() 给色，
-  -- 这里**一个都不写**。否则向导只要 setup() 一次或 flow() 一开，卡片就会刷回粉色调色板，
-  -- 与"全机一个色系"冲突（2026-09-25：用户要求所有 UI 统一）。
-  if (vim.g.picker_skin or "soft") ~= "pink" then
-    return
-  end
-  for _, d in ipairs(HL_DEFS) do
-    vim.api.nvim_set_hl(0, d[1], d[2])
-  end
-  -- （函数开头已经统一守过 soft 皮肤；这里直接写共享基座组 —— 上面那道门之后
-  --   必然处于 pink，重复判一次恒假，2026-09-25 审查指出是死代码。）
-  for _, s in ipairs(SNACKS_HL) do
-    vim.api.nvim_set_hl(0, s[1], s[2])
+  if (vim.g.picker_skin or "soft") == "pink" then
+    ui.apply()
   end
 end
 
--- 边框呼吸：WizBorder 在三个粉色之间缓慢过渡（1.2s 一步）
+-- 边框呼吸：WizBorder 在当前皮肤的三档边框色之间缓慢过渡（1.2s 一步）
 local border_timer = nil
 local border_step = 0
 -- generation 守卫：stop 后 schedule 里排队的最后一发改色不能晚于 reset 落地
@@ -366,12 +264,7 @@ local function restore_transient_hl()
 end
 
 -- 边框呼吸用的三档颜色：粉色皮肤用向导原来的粉阶，soft 皮肤用灰→蓝→深灰
-local function border_colors()
-  if (vim.g.picker_skin or "soft") == "pink" then
-    return { NEON.border, NEON.borderB, NEON.borderC }
-  end
-  return { "#7f849c", "#89b4fa", "#6c7086" }
-end
+local border_colors = ui.border_colors
 
 local function stop_pulse()
   pulse_gen = pulse_gen + 1
@@ -415,7 +308,7 @@ end
 -- winhighlight 字符串是死配置（Snacks.win 只消费 wo.winhighlight），
 -- 生效的是 picker.lua 给 box 窗合并的 winhl("SnacksPickerBox") 链接链
 -- → SnacksPickerBoxBorder → SnacksPickerBorder，被我们启动时定义的非
--- default 实色截胡。所以配色只写在 SNACKS_HL 一处，这里不放死配置。
+-- default 实色覆盖。共享配色集中在 core/ui.lua，这里不重复定义。
 -- 卡片宽度自适应：目标 104 列，终端窄就让到 columns-2（snacks 也会钳制）。
 -- id 列必须完整不截断（主键），最长的 AI id 有 42 字符，所以 90 列不够。
 local function card_w()
@@ -451,7 +344,7 @@ end
 -- win.Config 只接受 input / list / preview 三个键；backdrop 只能放单个窗口里
 -- （config/init.lua 的 fix_keys 会对 opts.win 做 pairs 取 win.keys，数字会炸）。
 -- 注意：这里的 winhighlight 写了也没用（init_layout 用 winhl() 生成的覆盖），
--- 变色全走上面 SNACKS_HL 的基座组。win 配置只管 backdrop / wo / minimal。
+-- 变色通过 core.ui 的基座组。win 配置只管 backdrop / wo / minimal。
 local function win_config()
   -- keys 必须放 win.input / win.list——snacks 只消费这两处（顶层 Config 没有
   -- keys 字段，写 pick{keys=...} 是死配置）。C-s 完成 = 文档承诺的行为。
@@ -1163,15 +1056,7 @@ end
 function M.setup()
   define_highlights()
   patch_list_rerender_on_move()
-  -- 配色直写十六进制但 ColorScheme 会清掉非 default 组，换主题时补一次。
-  -- 必须挂 group：setup() 被 commands.lua 和 springboot.lua 两处调用，
-  -- 无 group 会叠两份 autocmd
-  local grp = vim.api.nvim_create_augroup("SpringWizardHL", { clear = true })
-  vim.api.nvim_create_autocmd("ColorScheme", {
-    group = grp,
-    desc = "重建 Spring Boot 向导的派生高亮组",
-    callback = define_highlights,
-  })
+  -- ColorScheme 的共享高亮恢复统一由 core.ui.setup() 注册。
   if vim.fn.exists(":SpringBootCreate") == 2 then
     return
   end

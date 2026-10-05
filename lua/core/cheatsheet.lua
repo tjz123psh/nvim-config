@@ -13,6 +13,19 @@ local state = {
 
 local sections = {
   {
+    "菜单分类（入口通用，能力按语言）",
+    {
+      { "通用", "不限定语言：文件、窗口、搜索、终端等" },
+      { "LSP / 格式化", "跨语言入口，需对应语言服务器或格式化工具" },
+      { "整理 / 重构", "入口通用，具体动作由语言服务提供" },
+      { "DAP", "跨语言调试，需对应调试器" },
+      { "已配置调试语言", "Java / C / C++ / Go / Rust" },
+      { "Java / Spring / Markdown", "对应语言、框架或文件类型的专用功能" },
+      { "全局创建入口", "向导/Java 生成在其它文件中仍可用" },
+      { "Neovide", "仅 Neovide 图形界面" },
+    },
+  },
+  {
     "行操作",
     {
       { "J", "下移当前行" },
@@ -103,11 +116,13 @@ local sections = {
     },
   },
   {
-    "代码操作（需 LSP）",
+    "跨语言 · 代码操作 / 格式化",
     {
       { "<leader>rn", "重命名符号" },
-      { "<leader>ca", "代码操作" },
-      { "<leader>F", "格式化代码" },
+      { "<leader>ca", "所有可用代码操作（LSP）" },
+      { "<leader>Ra", "仅列出可用重构（n/x，选区用字符或整行）" },
+      { "<leader>ot", "整理导入（按语言；Java 保留 jdtls 增强）" },
+      { "<leader>F", "格式化代码（外部工具优先，其余操作需 LSP）" },
       { "<C-k>", "函数签名提示（i）" },
     },
   },
@@ -130,7 +145,7 @@ local sections = {
     },
   },
   {
-    "调试（DAP）",
+    "跨语言 · 调试（DAP，需对应调试器）",
     {
       { "<leader>dl", "重跑上次调试" },
       { "<leader>db", "断点列表（打开 quickfix 窗口）" },
@@ -163,15 +178,22 @@ local sections = {
     },
   },
   {
+    "Java / Spring 创建（全局入口，功能专用）",
+    {
+      { "<leader>sp", "Spring Boot 向导（任意缓冲区可用）" },
+      { "<leader>Gc / Gi / Ge / Gr", "生成 Java Class / Interface / Enum / Record" },
+    },
+  },
+  {
     "Java / Spring Boot（需 Java 缓冲区）",
     {
-      { "<F5>", "Java: 调试（自动扫描主类，多个则选择）" },
-      { "<leader>Jd", "Java: 重新扫描主类列表" },
-      { "<leader>Jt", "Java: 终端运行光标处测试方法" },
+      { "<F5>", "Java: 调试当前项目（每次扫描；已有会话则继续）" },
+      { "<leader>Jd", "Java: 重新扫描当前项目主类" },
+      { "<leader>Jt", "Java: 按语法定位当前方法并在专用终端测试" },
       { "<leader>JT", "Java: 终端运行当前测试类" },
       { "<leader>Jg / <leader>JG", "Java: 调试测试方法 / 测试类" },
       { "<leader>co / <leader>ca", "代码操作" },
-      { "<leader>ot", "整理 import" },
+      { "<leader>ot", "通用整理入口在 Java 中调用 jdtls" },
       { "gA", "跳转到父类/接口实现" },
       {
         "<leader>Rv / Rm / Rc / RV",
@@ -179,10 +201,12 @@ local sections = {
       },
       {
         "<leader>sr",
-        "Spring Boot: 运行（自动识别主类：多个弹选择框，含「全部启动」；每个主类一个终端，已在跑的标 ●）",
+        "Spring Boot: 运行（多个主类可选/全部启动；按项目和主类独占终端，已在跑的标 ●）",
       },
-      { "<leader>sp", "Spring Boot 向导（11 步可搜索选择）" },
-      { "<leader>Gc / Gi / Ge / Gr", "生成 Class / Interface / Enum / Record" },
+      {
+        ":<编号>ToggleTerm",
+        "重开对应 Java 终端（编号见启动通知/主类选择框；th 仍是通用终端）",
+      },
     },
   },
   {
@@ -209,13 +233,12 @@ local sections = {
     },
   },
   {
-    "Markdown 预览（md-render）",
+    "Markdown 编辑区美化",
     {
-      { "<leader>Mp", "浮动窗预览（开关）" },
-      { "<leader>Mt", "标签页预览（开关）" },
-      { "<leader>Ms", "左右分屏：源码 + 渲染" },
-      { ":MdRender", "命令版：float / tab / split / toggle / pager / demo" },
-      { "预览窗内", "j/k 滚动、za 或回车 折叠、q / Esc 关闭" },
+      { "<leader>Mp", "开关当前文档美化（不另开窗口）" },
+      { ":RenderMarkdown buf_enable / buf_disable", "启用 / 关闭当前缓冲区美化" },
+      { ":RenderMarkdown buf_toggle", "同 <leader>Mp" },
+      { "插入 / 可视模式", "显示 Markdown 源码，普通模式恢复美化" },
     },
   },
   {
@@ -228,7 +251,7 @@ local sections = {
   {
     "自定义命令",
     {
-      { ":R", "重载当前 Lua 配置文件" },
+      { ":R", "执行当前磁盘 Lua 文件（不是完整重载）" },
       { ":A", "打开欢迎页" },
       { ":Projects", "打开项目列表" },
       { ":LspInfo", "查看 LSP 客户端状态" },
@@ -247,8 +270,7 @@ local sections = {
   },
 }
 
--- 面板配色与 picker 保持一致（soft 皮肤由 plugins/snacks.lua 的 apply_skin() 覆盖；
--- 这里只给一份 default 兜底 link，粉色皮肤时就回落到主题色）。
+-- 这里只给 default 链接兜底；共享配色覆盖层集中在 core/ui.lua。
 local function define_highlights()
   vim.api.nvim_set_hl(0, "CheatSheetTitle", { link = "Title", default = true })
   vim.api.nvim_set_hl(0, "CheatSheetHint", { link = "Comment", default = true })

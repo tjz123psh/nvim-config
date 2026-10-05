@@ -57,5 +57,8 @@ return function(_client, bufnr)
   -- 重命名 / 代码操作 / 签名帮助
   map("n", "<leader>rn", vim.lsp.buf.rename, "重命名符号")
   map("n", "<leader>ca", vim.lsp.buf.code_action, "代码操作")
+  local actions = require("core.language_actions")
+  map("n", "<leader>ot", actions.organize_imports, "整理导入（按语言）")
+  map({ "n", "x" }, "<leader>Ra", actions.refactor, "可用重构（按语言，支持选区）")
   map("i", "<C-k>", vim.lsp.buf.signature_help, "显示函数签名")
 end

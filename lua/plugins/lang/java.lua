@@ -371,6 +371,8 @@ return {
         end
       end
 
+      local java_terminals = require("core.java_terminals")
+
       -- maven_task / gradle_task 任一为 nil 表示该构建工具不支持此操作
       local function run_build(maven_task, gradle_task, extra)
         local root = project_root()
@@ -391,9 +393,7 @@ return {
         ensure_exec(root, bin)
 
         local cmdline = bin .. " " .. task .. (extra or "")
-        -- exec(cmd, num, size, dir, direction, name, go_back) 是位置参数，不是 table
-        -- 用 2 号终端，避免和 <leader>tt 的 1 号交互终端抢位置；保留终端焦点查看结果
-        require("toggleterm").exec(cmdline, 2, nil, root, "horizontal", "Java 测试", false)
+        java_terminals.run(java_terminals.get(root, "build"), cmdline, false)
       end
 
       -- ── Spring Boot 运行：先认主类，再决定跑哪个 ──────
@@ -403,53 +403,13 @@ return {
       -- 扫描与参数解析在 core/java_main.lua（纯逻辑，可 headless 断言）。
       local java_main = require("core.java_main")
 
-      -- 每个主类固定一个终端槽：2 号是 <leader>th 的水平终端，3 号留给 <leader>tv 的垂直终端。
-      -- 同一个类永远落同一个槽 ⇒ 换个类启动会开新终端，双进程能同时跑。
-      -- ⚠ 不能都挤 2 号：toggleterm 的 exec 同 id 是复用同一个 shell，第二次会把命令行当输入
-      --   敲进正在运行的进程里（看着像跑了，其实什么都没发生）。
-      local RUN_SLOTS = { 2, 4, 5, 6, 7, 8, 9 }
-      local function run_slot(idx)
-        return RUN_SLOTS[(idx - 1) % #RUN_SLOTS + 1]
+      -- 终端对象按项目/主类分配，不依赖扫描顺序，也没有七个入口的循环上限。
+      local function run_term(root, main)
+        return java_terminals.get(root, "spring", main.fqcn)
       end
 
-      --- 槽里的 toggleterm 终端（必须 include_hidden：被 <leader>th 关掉后只是 hidden，进程还在跑）
-      local function slot_term(slot)
-        return require("toggleterm.terminal").get(slot, true)
-      end
-
-      --- 槽里是不是真有东西在跑？toggleterm 的终端是常驻 shell，光看 job 活着没用。
-      --- Linux 上读 /proc/<shell_pid>/task/<shell_pid>/children：空 = 停在提示符。
-      --- 读不到 /proc 就返回 true（保守：宁可多发一个 Ctrl-C，也别把命令行敲进旧进程的 stdin）。
-      local function slot_busy(slot)
-        local term = slot_term(slot)
-        local job = term and term.job_id
-        if not job then
-          return false
-        end
-        local ok, pid = pcall(vim.fn.jobpid, job)
-        if not ok or not pid or pid == 0 then
-          return false
-        end
-        local f = io.open("/proc/" .. pid .. "/task/" .. pid .. "/children", "r")
-        if not f then
-          return true
-        end
-        local children = f:read("*l")
-        f:close()
-        return children ~= nil and children ~= ""
-      end
-
-      --- 槽里的终端文本（用来判断应用起来没有）
-      local function slot_text(slot)
-        local term = slot_term(slot)
-        if not term or not term.bufnr or not vim.api.nvim_buf_is_valid(term.bufnr) then
-          return ""
-        end
-        return table.concat(vim.api.nvim_buf_get_lines(term.bufnr, 0, -1, false), "\n")
-      end
-
-      --- 启动一个主类；idx（1 起）决定终端槽，multi = 这是多入口项目
-      local function spring_boot_run(root, main, idx, multi)
+      --- 启动一个主类；multi = 这是多入口项目
+      local function spring_boot_run(root, main, multi)
         local bin, _, kind = detect_tool(root)
         if not bin then
           vim.notify("项目根目录下既没有 pom.xml 也没有 build.gradle*", vim.log.levels.ERROR)
@@ -461,17 +421,13 @@ return {
         end
         ensure_exec(root, bin)
 
-        local slot = run_slot(idx)
+        local term = run_term(root, main)
+        local slot = term.id
         local cmdline = bin .. " " .. (kind == "gradle" and "bootRun" or "spring-boot:run") .. plan.args
-        -- 槽里若真有东西在跑，先送一个 Ctrl-C（优雅停机）再发命令行 —— 否则 toggleterm 的 exec
-        -- 复用同一个 shell，第二条命令会被写进旧进程的 stdin（看着像跑了，其实什么都没发生）。
-        -- 于是「同一个类连按两次 <leader>sr」= 重启；槽空着就不发，省掉一行多余的 ^C。
-        local term = slot_term(slot)
-        local restarting = slot_busy(slot)
-        if restarting and term and term.job_id then
-          pcall(vim.fn.chansend, term.job_id, string.char(3))
+        local restarting = java_terminals.busy(term)
+        if not java_terminals.run(term, cmdline, true) then
+          return false
         end
-        require("toggleterm").exec(cmdline, slot, nil, root, "horizontal", "Spring: " .. main.simple, false)
         vim.notify(
           (restarting and "重启 " or "启动 ")
             .. main.simple
@@ -479,6 +435,9 @@ return {
             .. slot
             .. "）："
             .. cmdline
+            .. "　重开终端：:"
+            .. slot
+            .. "ToggleTerm"
             .. (multi and "　另一个入口：再按 <leader>sr（或选「全部启动」）" or ""),
           vim.log.levels.INFO
         )
@@ -495,17 +454,20 @@ return {
             return
           end
           local m = mains[n]
-          local slot = run_slot(n)
-          if slot_busy(slot) then
+          local term = run_term(root, m)
+          local slot = term.id
+          if java_terminals.busy(term) then
             vim.notify(m.simple .. " 已在终端 " .. slot .. " 跑着，跳过", vim.log.levels.INFO)
             step(n + 1)
             return
           end
-          spring_boot_run(root, m, n, true)
+          if spring_boot_run(root, m, true) == false then
+            return
+          end
           local waited = 0
           local function tick()
             waited = waited + 1
-            local text = slot_text(slot)
+            local text = term._java_output or ""
             if
               text:find("Started " .. m.simple, 1, true)
               or text:find("APPLICATION FAILED TO START", 1, true)
@@ -539,24 +501,24 @@ return {
         end
         if #mains == 1 then
           -- 只有一个入口：不打扰，直接启动
-          spring_boot_run(root, mains[1], 1, false)
+          spring_boot_run(root, mains[1], false)
           return
         end
         local info = java_main.main_flag(root)
         local default = info.flag and java_main.default_main(root, info.flag) or nil
         local items = {}
         for i, m in ipairs(mains) do
-          local slot = run_slot(i)
+          local term = run_term(root, m)
+          local slot = term.id
           items[i] = {
             kind = "one",
             fqcn = m.fqcn,
             simple = m.simple,
             pkg = m.pkg,
-            idx = i,
             slot = slot,
             is_default = m.fqcn == default,
             -- ● 已在跑：双进程项目最容易犯的错就是第二次又选了同一个（那会变成重启），标出来
-            running = slot_busy(slot),
+            running = java_terminals.busy(term),
           }
         end
         -- 多入口才给「全部启动」：一个动作把双进程都拉起来（按顺序，等前一个起来再起下一个）
@@ -587,231 +549,123 @@ return {
           if choice.kind == "all" then
             spring_boot_run_all(root, mains)
           else
-            spring_boot_run(root, choice, choice.idx, true)
+            spring_boot_run(root, choice, true)
           end
         end)
       end
 
-      -- ── 调试：优先用 jdtls 扫出来的主类，扫不到才回退手工输入 ──
-      local function pick_main_and_run(configs)
-        local dap = ensure_java_dap() -- 按需加载 nvim-dap（见文件顶部注释）
-        if #configs == 1 then
-          dap.run(configs[1])
-          return
-        end
-        -- vim.ui.select 现在由 snacks picker 接管（全机唯一的选择器）
-        vim.ui.select(configs, {
-          prompt = "选择要调试的主类",
-          format_item = function(c)
-            return c.mainClass or c.name
-          end,
-        }, function(choice)
-          if choice then
-            dap.run(choice)
-          end
-        end)
-      end
-
-      local function debug_java()
+      -- ── 调试：每次从当前项目重新取主类，不读写 DAP 全局主类缓存 ──
+      local debug_generation = 0
+      local function scan_java_debug(launch)
+        debug_generation = debug_generation + 1 -- 新操作让之前的请求/选择框失效。
+        local generation = debug_generation
         local dap = ensure_java_dap()
-        -- ⚠ 已有调试会话时 <F5> 必须是"继续"，不能重新选主类再 dap.run()
-        --   （同名活动配置在 nvim-dap 里是 restart ⇒ 断点处按 F5 会重启并丢失现场；
-        --   全局 <F5> 的语义就是 dap.continue，Java 缓冲区不该不一致。2026-09-25 审查 F06）
-        if dap.session() then
+        if launch and dap.session() then
           dap.continue()
           return
         end
-        local jdtls_dap = require("jdtls.dap")
-        local configs = dap.configurations.java or {}
-        if #configs > 0 then
-          pick_main_and_run(configs)
+        local bufnr = vim.api.nvim_get_current_buf()
+        local filename = vim.api.nvim_buf_get_name(bufnr)
+        local client = vim.lsp.get_clients({ bufnr = bufnr, name = "jdtls" })[1]
+        if not client or not client.config.root_dir then
+          vim.notify("当前 Java 缓冲区尚未附加 jdtls，请等待项目导入", vim.log.levels.WARN)
           return
         end
-
-        -- 首次：jdtls 要先把 Maven 依赖导完、编译完，才扫得出带 main 的类。
-        -- on_ready 无参数，必须自己回读 dap.configurations.java。
+        local root = client.config.root_dir
+        local function valid()
+          if generation ~= debug_generation or not vim.api.nvim_buf_is_valid(bufnr) then
+            return false
+          end
+          if vim.api.nvim_buf_get_name(bufnr) ~= filename or client.config.root_dir ~= root then
+            return false
+          end
+          local attached = vim.lsp.get_clients({ bufnr = bufnr, name = "jdtls" })[1]
+          return attached ~= nil and attached.id == client.id
+        end
+        local function run(config)
+          if not valid() or dap.session() or vim.api.nvim_get_current_buf() ~= bufnr then
+            return
+          end
+          debug_generation = debug_generation + 1 -- 一个选择回调最多启动一次。
+          vim.api.nvim_buf_call(bufnr, function()
+            dap.run(config)
+          end)
+        end
         local function attempt(n)
-          jdtls_dap.setup_dap_main_class_configs({
-            verbose = false,
-            on_ready = function()
-              local found = dap.configurations.java or {}
-              if #found > 0 then
-                vim.notify("找到 " .. #found .. " 个主类", vim.log.levels.INFO)
-                pick_main_and_run(found)
-                return
-              end
-              if n < 4 then
-                vim.notify("jdtls 仍在导入项目，重试 " .. (n + 1) .. "/4…", vim.log.levels.WARN)
-                vim.defer_fn(function()
-                  attempt(n + 1)
-                end, 2500)
-              else
-                vim.notify(
-                  "未发现主类。确认：1) 类里有 public static void main 2) :JavaBuildProjects 已跑过 3) jdtls 导入完成",
-                  vim.log.levels.ERROR
-                )
-                -- ⚠ 默认值不能塞进 vim.fn.input 的第二参：那样是"预填"，用户直接打字会追加成
-                --   DemoApplicationcom.example.App（2026-09-25 审查实测）。默认值只写进提示，
-                --   空输入才回退到它（向导 spring_wizard 早就是这么做的）。
-                local default_class = vim.fn.expand("%:t:r")
-                local main_class = vim.fn.input("主类名 [" .. default_class .. "]: ")
-                if main_class == "" then
-                  main_class = default_class
+          if not valid() or vim.api.nvim_get_current_buf() ~= bufnr then
+            return
+          end
+          require("core.java_debug").fetch(bufnr, client, valid, function(err, configs)
+            if not valid() or vim.api.nvim_get_current_buf() ~= bufnr or (launch and dap.session()) then
+              return
+            end
+            if err then
+              vim.notify(err, vim.log.levels.ERROR)
+              return
+            end
+            if not launch then
+              vim.notify(
+                "当前项目找到 " .. #configs .. " 个主类；F5 将重新查询并选择",
+                vim.log.levels.INFO
+              )
+              return
+            end
+            if #configs == 1 then
+              run(configs[1])
+            elseif #configs > 1 then
+              vim.ui.select(configs, {
+                prompt = "选择当前项目要调试的主类",
+                format_item = function(c)
+                  return c.mainClass .. "  [" .. c.projectName .. "]"
+                end,
+              }, function(choice)
+                if choice then
+                  run(choice)
                 end
-                if main_class and #main_class > 0 then
-                  dap.run({
+              end)
+            elseif n < 4 then
+              vim.notify("jdtls 仍在导入项目，重试 " .. (n + 1) .. "/4…", vim.log.levels.WARN)
+              vim.defer_fn(function()
+                attempt(n + 1)
+              end, 2500)
+            else
+              vim.notify(
+                "未发现主类，请确认 main 声明及项目导入状态（:JavaBuildProjects）",
+                vim.log.levels.WARN
+              )
+              -- 手动兜底也只针对最初捕获的项目；取消或空输入不启动。
+              vim.ui.input({ prompt = "手动输入完整主类名（取消则不启动）: " }, function(main_class)
+                if main_class and vim.trim(main_class) ~= "" then
+                  run({
                     type = "java",
                     name = "Java 调试",
                     request = "launch",
-                    mainClass = main_class,
+                    mainClass = vim.trim(main_class),
+                    cwd = root,
                   })
                 end
-              end
-            end,
-          })
+              end)
+            end
+          end)
         end
         attempt(1)
       end
 
-      -- ── 终端测试：运行测试不进入 DAP 调试界面，结果保留在终端中 ──
-      local function current_test_selector(include_method)
-        local bufnr = vim.api.nvim_get_current_buf()
-        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, true)
-        local package_name
-        local class_name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t:r")
-        local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-
-        for _, line in ipairs(lines) do
-          package_name = line:match("^%s*package%s+([%w_%.]+)%s*;") or package_name
-          if package_name then
-            break
-          end
-        end
-
-        local selector = package_name and (package_name .. "." .. class_name) or class_name
-        if not include_method then
-          return selector
-        end
-
-        -- 方法声明最多跨两行：`void foo() throws Exception` + 下一行的 `{`。
-        -- 旧实现用单行正则要求 `)` 之后紧跟 `{`，带 throws 的测试方法一律匹配不到，
-        -- 循环继续向上搜，命中上方某个旧方法 —— 用户以为在测 A，终端里跑的是 B。
-        -- 2026-09-28 实测复现：光标在 testOrderCreation（带 throws）内，跑的是 testAlpha。
-        -- 现在改成按「语句」判定：收集到 `)` 括号配平、再容忍一层 throws/泛型里的括号。
-        --- 括号是否配平（忽略字符串字面量里的括号）
-        local function parens_balanced(s)
-          local depth = 0
-          local in_str = false
-          local escaped = false
-          for i = 1, #s do
-            local ch = s:sub(i, i)
-            if in_str then
-              if escaped then
-                escaped = false
-              elseif ch == "\\" then
-                escaped = true
-              elseif ch == '"' then
-                in_str = false
-              end
-            elseif ch == '"' then
-              in_str = true
-            elseif ch == "(" then
-              depth = depth + 1
-            elseif ch == ")" then
-              depth = depth - 1
-            end
-          end
-          return depth == 0
-        end
-
-        --- 出现在「返回值」位置说明这不是方法声明（控制流关键字是 %w，会混进 token 列表）
-        local JAVA_NON_TYPE = {
-          ["if"] = true,
-          ["for"] = true,
-          ["while"] = true,
-          ["switch"] = true,
-          ["catch"] = true,
-          ["return"] = true,
-          ["new"] = true,
-          ["else"] = true,
-          ["do"] = true,
-          ["try"] = true,
-          ["assert"] = true,
-          ["throw"] = true,
-          ["case"] = true,
-          ["super"] = true,
-          ["this"] = true,
-          ["synchronized"] = true,
-          ["default"] = true,
-          ["instanceof"] = true,
-        }
-
-        --- 从「声明 + 可选 body 行」里取方法名；拿不准就返回 nil（宁可报「未找到」，也不要命中错方法）
-        local function method_name_from(signature)
-          -- 注解与声明同行时放弃（本机风格注解独占一行）
-          if signature:match("%s@[%w_%.]+%s") then
-            return nil
-          end
-          local sig = signature:gsub("%s*{%s*$", "")
-          -- ① 只认「紧跟在标识符后的整套括号」：head 里不许有 ( ` = ; ，这样
-          --    assertTrue(foo(bar)) / x = foo() 这类语句在第一关就被挡掉
-          local head = sig:match("^([%w_%s<>%[%],%.%?]+)")
-          if not head then
-            return nil
-          end
-          local rest = sig:sub(#head + 1)
-          -- ② head 必须以标识符结尾（方法名），且方法名后面直接就是 (
-          if not head:match("[%w_]$") or rest:sub(1, 1) ~= "(" then
-            return nil
-          end
-          if not parens_balanced(rest) then
-            return nil
-          end
-          -- ③ 必须像「类型 + 方法名」：至少两个 token，返回值位置不是控制流关键字、也不是泛型
-          local tokens = {}
-          for tok in head:gmatch("[%w_<>%[%],%.%?]+") do
-            tokens[#tokens + 1] = tok
-          end
-          if #tokens < 2 then
-            return nil
-          end
-          -- 返回值只取泛型前的裸类型名：Map<String, 与 List<Integer>> 都要还原成 Map / List
-          local ret = (tokens[#tokens - 1]:match("^([%w_%.]+)") or ""):lower()
-          if ret == "" or JAVA_NON_TYPE[ret] then
-            return nil
-          end
-          local name = tokens[#tokens]
-          if name:match("^%d") then
-            return nil
-          end
-          return name
-        end
-
-        for index = cursor_line, 1, -1 do
-          local joined = lines[index]:gsub("/%*.*%*/", " "):gsub("//.*$", "")
-          -- 声明被拆成两行时，把下一条非空行（通常就是 `{`）接上来
-          if index < #lines then
-            local nxt = lines[index + 1]:gsub("/%*.*%*/", " "):gsub("//.*$", "")
-            if vim.trim(nxt) ~= "" then
-              joined = joined .. " " .. vim.trim(nxt)
-            end
-          end
-          local name = method_name_from(joined)
-          if name then
-            return selector .. "#" .. name
-          end
-        end
-
-        vim.notify("光标附近未找到 Java 测试方法", vim.log.levels.WARN)
-        return nil
+      local function debug_java()
+        scan_java_debug(true)
       end
 
+      -- ── 终端测试：按语法结构定位；选择器整体转义，保护内部类的 $ 等字符 ──
       local function run_java_test(include_method)
-        local selector = current_test_selector(include_method)
+        local selector, err = require("core.java_test").selector(0, include_method)
         if not selector then
+          vim.notify(err, vim.log.levels.WARN)
           return
         end
-        run_build("test -Dtest=" .. selector, "test --tests " .. selector:gsub("#", "."))
+        run_build(
+          "test -Dtest=" .. vim.fn.shellescape(selector),
+          "test --tests " .. vim.fn.shellescape((selector:gsub("#", ".")))
+        )
       end
 
       -- ── 缓冲区快捷键 ───────────────────
@@ -822,14 +676,14 @@ return {
 
         -- 保留原有的两个别名
         vim.keymap.set("n", "<leader>co", vim.lsp.buf.code_action, d("Java 代码操作"))
-        vim.keymap.set("n", "<leader>ot", jdtls.organize_imports, d("整理 import"))
+        -- 与共享 on_attach 用同一入口，避免 jdtls/Spring 附加先后覆盖成不同语义。
+        vim.keymap.set("n", "<leader>ot", require("core.language_actions").organize_imports, d("Java: 整理 import"))
 
         -- 调试
         vim.keymap.set("n", "<F5>", debug_java, d("Java: 调试（自动识别主类）"))
         vim.keymap.set("n", "<leader>Jd", function()
-          ensure_java_dap()
-          require("jdtls.dap").setup_dap_main_class_configs({ verbose = true })
-        end, d("Java: 重新扫描主类"))
+          scan_java_debug(false)
+        end, d("Java: 重新扫描当前项目主类"))
 
         -- 测试默认走 Maven/Gradle 终端，结果不会随着 DAP 面板关闭而消失
         vim.keymap.set("n", "<leader>Jt", function()
@@ -849,21 +703,21 @@ return {
         --   ⇒ 选区被删掉、后面那个 "v" 还会被当文本写进文件（2026-09-25 审查实测）。
         vim.keymap.set("x", "<leader>Rv", function()
           jdtls.extract_variable(true)
-        end, d("重构: 提取变量（选区）"))
+        end, d("Java: 提取变量（选区）"))
         vim.keymap.set("x", "<leader>RV", function()
           jdtls.extract_variable_all(true)
-        end, d("重构: 提取所有重复表达式为变量（选区）"))
+        end, d("Java: 提取所有重复表达式为变量（选区）"))
         vim.keymap.set("x", "<leader>Rc", function()
           jdtls.extract_constant(true)
-        end, d("重构: 提取常量（选区）"))
+        end, d("Java: 提取常量（选区）"))
         vim.keymap.set("x", "<leader>Rm", function()
           jdtls.extract_method(true)
-        end, d("重构: 提取方法（选区）"))
+        end, d("Java: 提取方法（选区）"))
         -- n 模式保留「光标处表达式」语义
-        vim.keymap.set("n", "<leader>Rv", jdtls.extract_variable, d("重构: 提取变量（光标处）"))
-        vim.keymap.set("n", "<leader>RV", jdtls.extract_variable_all, d("重构: 提取所有重复表达式为变量"))
-        vim.keymap.set("n", "<leader>Rc", jdtls.extract_constant, d("重构: 提取常量"))
-        vim.keymap.set("n", "<leader>Rm", jdtls.extract_method, d("重构: 提取方法"))
+        vim.keymap.set("n", "<leader>Rv", jdtls.extract_variable, d("Java: 提取变量（光标处）"))
+        vim.keymap.set("n", "<leader>RV", jdtls.extract_variable_all, d("Java: 提取所有重复表达式为变量"))
+        vim.keymap.set("n", "<leader>Rc", jdtls.extract_constant, d("Java: 提取常量"))
+        vim.keymap.set("n", "<leader>Rm", jdtls.extract_method, d("Java: 提取方法"))
 
         -- 父类/接口实现跳转（IDEA 的 Ctrl+U）
         -- 用 gA 而不是 gU：gU 是内置的「转大写」操作符，覆盖它会让 Java 里 gU{motion} 失效

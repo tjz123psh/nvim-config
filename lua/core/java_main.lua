@@ -38,7 +38,7 @@ function M.has_main(text)
 end
 
 --- 扫项目里的主类（只扫 src/main/java：测试源集里的 main 不该出现在启动列表里）
---- 返回按 FQCN 排序的 { { fqcn, simple, pkg }, ... }；顺序稳定 ⇒ 终端槽分配也稳定。
+--- 返回按 FQCN 排序的 { { fqcn, simple, pkg }, ... }；排序只用于展示，终端按项目和 FQCN 分配。
 --- Kotlin 暂不扫：顶层 fun main 编译成 XxxKt，FQCN 和文件名不一致，猜错会让 spring-boot:run 找不到类。
 function M.scan(root)
   local out = {}

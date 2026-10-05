@@ -37,9 +37,8 @@ return {
       -- minmax(min_width, max_width(默认 columns-4), 内容宽)；把具体宽度写进 width 会绕过这层保护。
       -- 下限 min_width 由 40 提到 input_boxes.noice_min_width()（2026-09-26 用户反馈"命令行框比
       -- 输入框短太多"：实测输入框 84 列 vs 命令行 44 列）⇒ 与 snacks 输入框等长；长命令仍随内容变宽。
-      -- ⚠ noice 的 min_width 只能是数字 ⇒ 这里是**配置加载时的快照**：80 列终端下取 38（总宽 42+…）
-      --   而不是写死 78，右边框不会再被推出屏幕（2026-09-28 审查 U01）。改终端大小要重启才跟上；
-      --   snacks 那侧是函数、开窗即求值。两边公式都出自 core/input_boxes.lua，别只改一边。
+      -- min_width 必须是数字，因此这里只在加载时计算；Snacks 则在每次开窗求值。
+      -- 两边尺寸公式都在 core/input_boxes.lua，调整终端后重启可重新对齐宽度。
       cmdline_popup = {
         position = { row = "50%", col = "50%" },
         size = { width = "auto", min_width = input_boxes.noice_min_width(), height = "auto" },

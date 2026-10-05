@@ -18,6 +18,7 @@ return {
     -- 与已安装插件的配色集成（让所有插件都统一用主题色）
     integrations = {
       treesitter = true, -- 语法高亮
+      render_markdown = true, -- Markdown 编辑区美化（不使用整行背景）
       native_lsp = { enabled = true }, -- LSP 语义高亮
       blink_cmp = true, -- 补全菜单 blink.cmp
       -- telescope 集成已随插件一起删除（搜索统一走 snacks picker）

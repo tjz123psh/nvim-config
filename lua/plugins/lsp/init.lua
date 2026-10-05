@@ -69,13 +69,14 @@ return {
     -- 当 LSP 附加到某个缓冲区时，注册对应的快捷键
     -- 抽到 core/lsp_on_attach.lua，因为 nvim-jdtls 走自己的启动路径、
     -- 不经过这里的自动配置，需要和 lang/java.lua 共用同一份映射。
+    -- Ra / ot 也在共享 on_attach 中注册：按语言请求重构/整理，不按静态 capability 决定是否绑键。
     on_attach = require("core.lsp_on_attach"),
 
     -- 需要跳过的服务器（由专门的插件管理）
     setup = {
       jdtls = function()
         return true
-      end, -- Java 由 nvim-jdtls 管理
+      end, -- Java 由 nvim-jdtls 管理；测试/终端/按客户端查询调试配置由 core/java_* 辅助模块负责
       rust_analyzer = function()
         if vim.fn.executable("rustc") == 1 and vim.fn.executable("cargo") == 1 then
           return false

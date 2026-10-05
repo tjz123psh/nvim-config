@@ -117,7 +117,7 @@ return {
       --   但读盘与写入之间没有跨实例锁：另一个 nvim 在这个间隙 append 的条目会被这次截断抹掉
       --   （检查后截断的竞态窗口）。镜像副本只能救"已经被镜像过"的记录，救不了刚写进去的那条。
       --   追加写不会破坏别人的数据，所以这里把截断路径整个去掉；代价是插件历史文件可能变长，
-      --   读取侧（core/commands.lua 的 read_project_history）本来就会去重与并集。
+      --   读取侧（core/projects.lua 的 read_project_history）本来就会去重与并集。
       history.write_projects_to_history = function()
         local ok, err = pcall(function()
           local disk = disk_entries()

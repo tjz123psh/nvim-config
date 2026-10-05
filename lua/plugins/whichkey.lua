@@ -7,14 +7,8 @@ return {
   "folke/which-key.nvim",
   event = "VeryLazy",
   opts = {
-    -- 触发器只挂"spec 里有分组"的前缀（改这里必须拿 spec 的前缀对一遍，见技能 §15.1/§15.2）：
-    --   · 缺一个的症状就是"按下去毫无反应"（映射其实是好的，只是不弹）—— 2026-09-25 先修 g，
-    --     复查又补上同类的 z / [ / ] / <C-w>；
-    --   · 有意**不**加：操作符后的 motion（spec 里 mode = "no"，加了每次 d/y/c 都弹）与文本对象
-    --     a / i（mode = "xo"，aw / i( 这类序列会打扰；需要时 :WhichKey a）；
-    --   · 别改成 { "<auto>" }：会给所有前缀建触发器，把当初收窄想避开的噪音全搬回来；
-    --   · mode 要带 "v"（x 模式不写就没有触发器；v/x 内部等价）。which-key 只在当前 buffer 的
-    --     x 模式树里真有 <leader> 映射时才挂 ⇒ 实际只有 Java 缓冲区会弹（<leader>Rv/RV 是 buffer-local）。
+    -- 只为下列前缀弹提示；不覆盖所有操作符和文本对象，避免打字时频繁弹窗。
+    -- v 模式同时覆盖全局可视映射（如 Sidekick）与 Java 的局部重构映射。
     triggers = {
       { "<leader>", mode = { "n", "v" } },
       { "\\", mode = { "n", "v" } }, -- localleader
@@ -26,26 +20,36 @@ return {
     },
     delay = 300,
     spec = {
-      -- leader 前缀分组
-      { "<leader>a", group = "AI CLI（sidekick）" },
-      { "<leader>b", group = "缓冲区操作" },
-      { "<leader>c", group = "代码操作" },
-      { "<leader>d", group = "调试（DAP）" },
-      { "<leader>f", group = "搜索" },
-      { "<leader>h", group = "快捷键速查" },
-      { "<leader>r", group = "重命名/运行" },
-      { "<leader>s", group = "Spring Boot" },
-      { "<leader>t", group = "终端" },
-      -- Neovide 专属（neovide.lua 注册，终端 nvim 里不存在）；补个组名让兜底弹窗里也成组
-      { "<leader>u", group = "Neovide（仅 GUI）" },
-      { "<leader>v", group = "窗口：切分" },
-      { "<leader>w", group = "保存/退出" },
-      { "<leader>G", group = "代码生成（Java）" },
-      { "<leader>J", group = "Java 测试 / 调试" },
-      { "<leader>m", group = "Maven / Gradle 构建" },
-      { "<leader>M", group = "Markdown 预览" },
-      { "<leader>o", group = "整理 import" },
-      { "<leader>R", group = "重构：提取" },
+      -- 这里只改提示，不创建/重绑按键。前缀区分通用工具、语言能力和专用功能。
+      -- 分组名同时覆盖普通/可视模式；没有实际子项的空组由 which-key 自动收起。
+      -- 不用 cond 按当前 filetype 判断：cond 在注册时求值，切换文件后不会重新判断。
+      {
+        mode = { "n", "v" },
+        { "<leader>a", group = "通用 · AI CLI" },
+        { "<leader>b", group = "通用 · 缓冲区" },
+        { "<leader>c", group = "LSP · 代码操作" },
+        { "<leader>d", group = "DAP · 调试" },
+        { "<leader>f", group = "通用 · 搜索" },
+        { "<leader>h", group = "通用 · 速查/消息" },
+        { "<leader>r", group = "LSP · 重命名" },
+        -- sp 是全局创建入口，不能因为当前不是 Java 文件就隐藏整个 Spring 组。
+        { "<leader>s", group = "Spring · 项目/运行" },
+        { "<leader>t", group = "通用 · 终端" },
+        { "<leader>u", group = "Neovide · 显示" },
+        { "<leader>v", group = "通用 · 窗口切分" },
+        { "<leader>w", group = "通用 · 保存/退出" },
+        { "<leader>G", group = "Java · 代码生成" },
+        { "<leader>J", group = "Java · 测试/调试" },
+        { "<leader>m", group = "Java · Maven/Gradle" },
+        { "<leader>M", group = "Markdown · 美化" },
+        { "<leader>o", group = "整理 · 按语言" },
+        { "<leader>R", group = "重构 · 按语言" },
+      },
+      -- 单项提示只覆盖实际已有的普通模式映射，不在可视模式制造虚假入口。
+      { "<leader>e", desc = "通用 · 文件树" },
+      { "<leader>j", desc = "通用 · 合并下一行" },
+      { "<leader>q", desc = "通用 · 关闭窗口" },
+      { "<leader>F", desc = "格式化 · 当前文件" },
 
       { "ZQ", desc = "放弃当前窗口修改并关闭（不自动保存）" },
       { "g", group = "g 前缀 —— 跳转、转换、文件" },
