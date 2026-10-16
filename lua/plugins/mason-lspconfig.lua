@@ -1,5 +1,4 @@
 -- 手动 LSP 安装入口：启动与编辑文件不加载本插件、不刷新注册表。
--- 批量补齐工具用 :MasonToolsInstall，清单统一在 mason-tool-installer.lua。
 return {
   "williamboman/mason-lspconfig.nvim",
   cmd = { "LspInstall", "LspUninstall" },

@@ -1,15 +1,12 @@
--- ============================================
 -- 诊断显示与 LSP 日志管理
--- ============================================
 
 local M = {}
 
--- virtual_lines 不会自行折行；保留缩进和错误指示符，最多显示 12 行。
+-- virtual_lines 不折行：按显示宽度换行，箭头行保持原状，最多 12 行。
 local function wrap_message(text, width)
   local out = {}
   for _, para in ipairs(vim.split(text, "\n", { plain = true })) do
     local trimmed = vim.trim(para)
-    -- ① 指示符行：只有 ^ 或 ~（javac/ECJ 的指着箭头），折行会让箭头指错位置 ⇒ 原样保留
     if trimmed ~= "" and trimmed:match("^[%^~]+$") then
       out[#out + 1] = para
       goto continue
@@ -52,10 +49,29 @@ local function wrap_message(text, width)
 end
 
 function M.setup()
-  -- LSP 日志只记录 ERROR，防止日志长期膨胀
+  vim.api.nvim_create_user_command("LspInfo", function()
+    local clients = vim.lsp.get_clients()
+    if #clients == 0 then
+      vim.notify("没有活跃的 LSP 客户端", vim.log.levels.INFO)
+      return
+    end
+    local lines = {}
+    for _, c in ipairs(clients) do
+      table.insert(lines, string.format("%s (%s)", c.name, c.id))
+      local root = type(c.config.root_dir) == "string" and c.config.root_dir or "N/A"
+      table.insert(lines, "  root: " .. root)
+      table.insert(lines, "  filetypes: " .. table.concat(c.config.filetypes or {}, ", "))
+      table.insert(lines, "")
+    end
+    vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO, { title = "LSP 客户端" })
+  end, { force = true, desc = "查看 LSP 客户端状态" })
+
+  vim.api.nvim_create_user_command("LspLog", function()
+    vim.cmd.edit(vim.fn.fnameescape(vim.lsp.log.get_filename()))
+  end, { force = true, desc = "打开 LSP 日志文件" })
+
   vim.lsp.log.set_level(vim.log.levels.ERROR)
 
-  -- 超过 5MB 就轮转为 lsp.log.1，只保留最近一份旧日志。
   do
     local log_path = vim.lsp.log.get_filename()
     local ok, stat = pcall(vim.uv.fs_stat, log_path)
@@ -64,11 +80,8 @@ function M.setup()
     end
   end
 
-  -- 诊断提示样式
   vim.diagnostic.config({
-    -- 同行多条诊断时，优先显示最严重的一条。
     severity_sort = true,
-    -- 当前行用 virtual_lines 展开，其他行用行尾文字，避免同一条信息显示两遍。
     virtual_text = {
       spacing = 2,
       prefix = "●",
@@ -79,8 +92,6 @@ function M.setup()
     virtual_lines = {
       current_line = true, -- 光标所在行：把诊断整行展开在下一行（长消息不再被行尾截断）
       severity = { min = vim.diagnostic.severity.WARN },
-      -- 默认格式是 "[code] message"，jdtls 的 code 是内部诊断号（如 [603979884]），去掉；
-      -- 并按窗口宽度折行（virtual_lines 自己不折，见上面 wrap_message 的注释）。
       format = function(d)
         local wins = vim.fn.win_findbuf(d.bufnr or 0)
         local win = wins[1] or vim.api.nvim_get_current_win()
@@ -96,8 +107,6 @@ function M.setup()
     float = {
       border = "rounded",
       source = "if_many",
-      -- 默认会在消息末尾追加 " [code]"。jdtls 的 code 是内部诊断号（如 [603979884]），
-      -- 纯噪音；但 eslint 规则名、rustc 的 E0308 这类文字码有用，所以只丢掉纯数字码。
       suffix = function(d)
         local code = d.code and tostring(d.code) or ""
         if code ~= "" and not code:match("^%d+$") then
@@ -109,8 +118,7 @@ function M.setup()
     update_in_insert = false,
   })
 
-  -- 插入时推迟显示的诊断需要在退出后重绘；<C-c> 不触发 InsertLeave，
-  -- 因此用 ModeChanged 覆盖退出路径。只重绘可见缓冲区，避免随文件数增加开销。
+  -- Ctrl-C 不触发 InsertLeave，退出插入模式后补绘可见缓冲区诊断。
   vim.api.nvim_create_autocmd("ModeChanged", {
     group = vim.api.nvim_create_augroup("UserDiagnosticInsertLeaveFallback", { clear = true }),
     pattern = "i*:n*",

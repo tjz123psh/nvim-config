@@ -68,7 +68,7 @@ local function project(name)
   local attempts = 0
   local function fetch()
     attempts = attempts + 1
-    require("core.java_debug").fetch(buf, client, function()
+    require("languages.java.debug").fetch(buf, client, function()
       return not client:is_stopped()
     end, function(err, configs)
       last_error = err
@@ -89,7 +89,7 @@ local function project(name)
   assert(#found == 1 and found[1].mainClass == class, vim.inspect(found))
   assert(found[1].cwd == dir and found[1].projectName == name, vim.inspect(found))
   assert(type(found[1].javaExec) == "string" and #found[1].classPaths > 0, vim.inspect(found))
-  local shared = require("core.language_actions")
+  local shared = require("languages.shared.actions")
   shared.organize_imports()
   assert(
     vim.wait(10000, function()

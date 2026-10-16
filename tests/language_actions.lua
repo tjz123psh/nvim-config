@@ -2,7 +2,7 @@
 local root = vim.fn.getcwd()
 package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
 vim.g.mapleader = " "
-local actions = require("core.language_actions")
+local actions = require("languages.shared.actions")
 local count = 0
 local function eq(actual, expected, message)
   assert(
@@ -156,7 +156,7 @@ eq(last_params, nil, "Java does not take generic source action route")
 reset("rust")
 -- 不因初始化时缺少静态 codeActionProvider 而漏绑键；实际能力留到按键时检测。
 client.server_capabilities = {}
-require("core.lsp_on_attach")(client, buf)
+require("languages.shared.lsp")(client, buf)
 eq(vim.fn.maparg("<leader>Ra", "n", false, true).callback, actions.refactor, "shared normal Ra")
 eq(vim.fn.maparg("<leader>Ra", "x", false, true).callback, actions.refactor, "shared visual Ra")
 eq(vim.fn.maparg("<leader>ot", "n", false, true).callback, actions.organize_imports, "shared ot")

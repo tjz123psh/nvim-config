@@ -43,7 +43,7 @@ local function buffer(path, text, needle)
   end
   return b
 end
-local selector = require("core.java_test").selector
+local selector = require("languages.java.syntax").selector
 local source = [[package demo;
 class ExampleTest {
   @Test void alpha() { alphaBody(); }
@@ -170,7 +170,7 @@ package.loaded["toggleterm.terminal"] = {
     return registry[id]
   end,
 }
-local terminals = require("core.java_terminals")
+local terminals = require("languages.java.terminal")
 local old_open, old_jobpid, old_chansend, old_jobwait = io.open, vim.fn.jobpid, vim.fn.chansend, vim.fn.jobwait
 vim.fn.jobwait = function()
   return { -1 }
@@ -251,7 +251,7 @@ eq(sent[#sent].cmd, "cd -- '/mock/project with space' && test", "quote project p
 io.open, vim.fn.jobpid, vim.fn.chansend, vim.fn.jobwait = old_open, old_jobpid, old_chansend, old_jobwait
 
 -- 真 discovery 模块 + 假 LSP transport：每一步必须使用捕获的 client/buffer。
-local discovery = require("core.java_debug")
+local discovery = require("languages.java.debug")
 local requests, outcomes = {}, {}
 local alive = true
 local client = { id = 41, config = { root_dir = "/mock/a" } }
@@ -340,17 +340,16 @@ package.loaded["spring_boot"] = {
     return {}
   end,
 }
-package.loaded["core.lsp_on_attach"] = function() end
-package.loaded["core.java_debug"] = {
-  fetch = function(buf, cli, valid, callback)
-    scans[#scans + 1] = { buf = buf, client = cli, valid = valid, callback = callback }
-  end,
-}
+package.loaded["languages.shared.lsp"] = function() end
+discovery.fetch = function(buf, cli, valid, callback)
+  scans[#scans + 1] = { buf = buf, client = cli, valid = valid, callback = callback }
+end
+package.loaded["languages.java.ui"] = { setup = function() end }
 vim.lsp.get_clients = function(opts)
   return current_clients[opts and opts.bufnr or vim.api.nvim_get_current_buf()] or {}
 end
 local workflow_runs = {}
-package.loaded["core.java_terminals"] = {
+package.loaded["languages.java.terminal"] = {
   get = function(dir, kind, main)
     return { id = 20, root = dir, kind = kind, main = main }
   end,
@@ -362,15 +361,14 @@ package.loaded["core.java_terminals"] = {
     return true
   end,
 }
-package.loaded["core.java_main"] = {
-  scan = function()
-    return { { fqcn = "demo.App", simple = "App", pkg = "demo" } }
-  end,
-  run_args = function()
-    return { args = " -Dmain.class=demo.App" }
-  end,
-}
-local spec = dofile(root .. "/lua/plugins/lang/java.lua")[1]
+local spring = require("languages.java.spring.run")
+spring.scan = function()
+  return { { fqcn = "demo.App", simple = "App", pkg = "demo" } }
+end
+spring.configuration = function()
+  return { flag = "main.class" }
+end
+local spec = require("languages.java").plugins[1]
 spec.config(nil, spec.opts)
 local function java_buffer(name, id)
   local b = buffer("/mock/" .. name .. "/App.java", "class App {}", "class")
@@ -439,6 +437,9 @@ eq(#scans, scan_count, "retry stops after changing buffer")
 -- 验证实际快捷键到构建命令的连接，包括内部类 $ 的 shell 转义。
 local real_stat = vim.uv.fs_stat
 local gradle = false
+require("languages.java.project").tool = function(dir)
+  return { root = dir, kind = gradle and "gradle" or "maven", bin = { gradle and "gradle" or "mvn" } }
+end
 vim.fs.root = function()
   return "/mock/workflow"
 end
@@ -458,11 +459,15 @@ vim.api.nvim_buf_set_lines(
 )
 vim.api.nvim_win_set_cursor(0, { 4, 0 })
 press("<leader>Jt", a)
-eq(workflow_runs[#workflow_runs].cmd, "mvn test -Dtest='demo.Outer$Inner#test'", "Maven selector shellescaped")
+eq(workflow_runs[#workflow_runs].cmd, "'mvn' 'test' '-Dtest=demo.Outer$Inner#test'", "Maven selector shellescaped")
 eq(workflow_runs[#workflow_runs].term.kind, "build", "test uses build owner")
 gradle = true
 press("<leader>Jt", a)
-eq(workflow_runs[#workflow_runs].cmd, "gradle test --tests 'demo.Outer$Inner.test'", "Gradle selector shellescaped")
+eq(
+  workflow_runs[#workflow_runs].cmd,
+  "'gradle' 'test' '--tests' 'demo.Outer$Inner.test'",
+  "Gradle selector shellescaped"
+)
 gradle = false
 press("<leader>sr", a)
 eq(workflow_runs[#workflow_runs].term.kind, "spring", "Spring uses separate owner")

@@ -4,7 +4,7 @@ assert(base:match("^/tmp/nvim%-language%-"), "isolated test directory required")
 local root = vim.fn.getcwd()
 package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
 local bin = vim.env.HOME .. "/.local/share/nvim/mason/bin/"
-local shared = require("core.language_actions")
+local shared = require("languages.shared.actions")
 vim.o.hidden = true
 local specs = {
   {

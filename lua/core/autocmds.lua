@@ -1,33 +1,7 @@
--- ============================================
 -- 自动命令（Autocmds）
--- 在特定事件发生时自动执行某些操作
--- ============================================
 
--- 创建自动命令组（方便统一管理）
 local augroup = vim.api.nvim_create_augroup("core", { clear = true })
 
--- Lua 文件跟随 stylua.toml，保持编辑缩进和格式化结果一致
-vim.api.nvim_create_autocmd("FileType", {
-  group = augroup,
-  pattern = "lua",
-  callback = function()
-    vim.bo.tabstop = 2
-    vim.bo.shiftwidth = 2
-  end,
-})
-
--- 打开 C/C++/Java/Python 文件时，设置缩进为 4 空格
-vim.api.nvim_create_autocmd("FileType", {
-  group = augroup,
-  pattern = { "cpp", "c", "java", "python" },
-  callback = function()
-    vim.bo.tabstop = 4
-    vim.bo.shiftwidth = 4
-  end,
-})
-
--- 进入插入模式时自动清除搜索高亮
--- 这样搜索后按 i 进入编辑，不会看到满屏黄色
 vim.api.nvim_create_autocmd("InsertEnter", {
   group = augroup,
   callback = function()
@@ -37,20 +11,12 @@ vim.api.nvim_create_autocmd("InsertEnter", {
   end,
 })
 
--- ============================================
--- 自动保存
--- 在离开缓冲区、失去焦点、退出等"告一段落"的时机写盘，免去手动保存。
--- 刻意不用 CursorHold 空闲触发：那会让每次停顿都叠加 format_on_save，
--- 尤其 Java 格式化需起 JVM，开销大。
--- 临时关闭：vim.g.core_autosave = false
--- ============================================
 local function is_savable(buf)
   if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_buf_is_loaded(buf) then
     return false
   end
 
   local bo = vim.bo[buf]
-  -- 仅保存有文件名、可修改、非只读且有改动的普通文件缓冲区
   if bo.buftype ~= "" or not bo.modifiable or bo.readonly then
     return false
   end
@@ -58,8 +24,7 @@ local function is_savable(buf)
   return vim.api.nvim_buf_get_name(buf) ~= "" and bo.modified
 end
 
--- 原生解析器负责命令缩写、计数和 :silent 等修饰符，不自己维护缩写白名单。
--- 只处理直接的 Ex 退出命令；插件/Lua 需要丢弃退出时可调用本模块的 quit_without_save。
+-- 直接 Ex 退出交给原生解析；Lua/ZQ 退出使用显式丢弃保护。
 local QUIT_COMMANDS = {
   quit = true,
   qall = true,
@@ -127,6 +92,7 @@ vim.api.nvim_create_autocmd("WinClosed", {
   end,
   desc = "目标窗口关闭后，立即恢复其余窗口的自动保存",
 })
+-- schedule 会在 vim.wait 内提前执行；只能在命令真正结束后清理意图。
 vim.api.nvim_create_autocmd("SafeState", {
   group = augroup,
   callback = function()
@@ -134,14 +100,12 @@ vim.api.nvim_create_autocmd("SafeState", {
       clear_quit_state()
     end
   end,
-  -- SafeState 不在执行命令/映射中触发；不能用 schedule 代替，vim.wait 会提前运行它。
   desc = "命令执行完且回到输入等待时清理退出状态（含失败的退出）",
 })
 
 local saving = false -- 重入保护：写盘时可能触发 BufLeave/退出类事件
 
 local function write_current()
-  -- lockmarks 保留跳转列表和列位置，避免自动保存打断光标历史
   vim.cmd("silent! lockmarks write")
 end
 
@@ -160,9 +124,7 @@ local function autosave_current_buf()
   end
 end
 
--- 退出前保存**所有**被改过的缓冲区。旧实现只存当前 buffer，
--- 后台改过的文件仍会让 :qa 弹"E37: 已修改但未保存"，自动保存等于白做。
--- nvim_buf_call 让 :write 作用在指定缓冲区上，结束后当前缓冲区/窗口不变。
+-- 退出保存所有已修改缓冲区，不能只保存当前窗口。
 local function autosave_all_bufs()
   if vim.g.core_autosave == false or saving then
     return
@@ -188,7 +150,6 @@ vim.api.nvim_create_autocmd("QuitPre", {
     local intent = protected_discard == 0 and table.remove(pending_quits, 1) or nil
     discard_exit = protected_discard > 0 or (intent and intent.discard) or false
     discard_window = discard_exit and vim.api.nvim_get_current_win() or nil
-    -- 每次 QuitPre 单独决定，:q! | q 的第二个普通退出仍应保存。
     if not discard_exit then
       autosave_all_bufs()
     end
@@ -198,7 +159,6 @@ vim.api.nvim_create_autocmd("QuitPre", {
 vim.api.nvim_create_autocmd("VimLeavePre", {
   group = augroup,
   callback = function()
-    -- :cquit 不触发 QuitPre，需在最终退出阶段读取它的意图。
     if pending_quits[1] and pending_quits[1].name == "cquit" then
       discard_exit = true
     end

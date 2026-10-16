@@ -19,10 +19,10 @@ for _, ft in ipairs({ "java", "go", "rust", "c", "cpp", "lua", "markdown", "text
   buffers[ft] = b
   vim.bo[b].filetype = ft
   if ft ~= "markdown" and ft ~= "text" then
-    require("core.lsp_on_attach")({}, b)
+    require("languages.shared.lsp")({}, b)
   end
   if ft == "java" then
-    for _, key in ipairs({ "Jt", "ot", "Rv", "mc", "co", "sr" }) do
+    for _, key in ipairs({ "Jr", "Jt", "ot", "Rv", "mc", "co", "sr" }) do
       vim.keymap.set("n", "<leader>" .. key, noop, { buffer = b, desc = "fixture " .. key })
     end
     vim.keymap.set("x", "<leader>Rv", noop, { buffer = b, desc = "fixture visual Rv" })
@@ -87,7 +87,8 @@ end
 local java = tree("java")
 eq(label(java, "o"), "整理 · 按语言", "Java uses shared organization group")
 eq(label(java, "R"), "重构 · 按语言", "Java refactoring labeled")
-eq(label(java, "J"), "Java · 测试/调试", "Java tests distinct from DAP")
+eq(label(java, "J"), "Java · 运行/测试/调试", "Java workflows distinct from generic DAP")
+eq(label(java, "Jr"), "fixture Jr", "single-file runner visible in Java menu")
 eq(label(java, "m"), "Java · Maven/Gradle", "build tools not universal")
 eq(label(java, "c"), "LSP · 代码操作", "shared LSP action")
 eq(label(java, "r"), "LSP · 重命名", "shared rename")
@@ -101,7 +102,7 @@ eq(snapshot(), before, "real key mappings unchanged")
 vim.keymap.set("n", "<leader>uo", noop, { desc = "fixture Neovide opacity" })
 eq(label(tree("text"), "u"), "Neovide · 显示", "Neovide group follows real mapping")
 vim.keymap.del("n", "<leader>uo")
-local guide = require("core.cheatsheet")
+local guide = require("core.ui.cheatsheet")
 guide.show()
 local guide_width = vim.api.nvim_win_get_width(0)
 local legend = false

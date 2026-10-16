@@ -1,14 +1,9 @@
--- ============================================
 -- 快捷键提示：which-key.nvim
--- 按 leader 键后弹出分类菜单，显示可用快捷键
--- ============================================
 
 return {
   "folke/which-key.nvim",
   event = "VeryLazy",
   opts = {
-    -- 只为下列前缀弹提示；不覆盖所有操作符和文本对象，避免打字时频繁弹窗。
-    -- v 模式同时覆盖全局可视映射（如 Sidekick）与 Java 的局部重构映射。
     triggers = {
       { "<leader>", mode = { "n", "v" } },
       { "\\", mode = { "n", "v" } }, -- localleader
@@ -20,9 +15,6 @@ return {
     },
     delay = 300,
     spec = {
-      -- 这里只改提示，不创建/重绑按键。前缀区分通用工具、语言能力和专用功能。
-      -- 分组名同时覆盖普通/可视模式；没有实际子项的空组由 which-key 自动收起。
-      -- 不用 cond 按当前 filetype 判断：cond 在注册时求值，切换文件后不会重新判断。
       {
         mode = { "n", "v" },
         { "<leader>a", group = "通用 · AI CLI" },
@@ -32,20 +24,18 @@ return {
         { "<leader>f", group = "通用 · 搜索" },
         { "<leader>h", group = "通用 · 速查/消息" },
         { "<leader>r", group = "LSP · 重命名" },
-        -- sp 是全局创建入口，不能因为当前不是 Java 文件就隐藏整个 Spring 组。
         { "<leader>s", group = "Spring · 项目/运行" },
         { "<leader>t", group = "通用 · 终端" },
         { "<leader>u", group = "Neovide · 显示" },
         { "<leader>v", group = "通用 · 窗口切分" },
         { "<leader>w", group = "通用 · 保存/退出" },
         { "<leader>G", group = "Java · 代码生成" },
-        { "<leader>J", group = "Java · 测试/调试" },
+        { "<leader>J", group = "Java · 运行/测试/调试" },
         { "<leader>m", group = "Java · Maven/Gradle" },
         { "<leader>M", group = "Markdown · 美化" },
         { "<leader>o", group = "整理 · 按语言" },
         { "<leader>R", group = "重构 · 按语言" },
       },
-      -- 单项提示只覆盖实际已有的普通模式映射，不在可视模式制造虚假入口。
       { "<leader>e", desc = "通用 · 文件树" },
       { "<leader>j", desc = "通用 · 合并下一行" },
       { "<leader>q", desc = "通用 · 关闭窗口" },
@@ -53,7 +43,6 @@ return {
 
       { "ZQ", desc = "放弃当前窗口修改并关闭（不自动保存）" },
       { "g", group = "g 前缀 —— 跳转、转换、文件" },
-      -- Neovim 内置注释（descriptions 是英文的 "Toggle comment*"，这里覆盖成中文）
       { "gc", desc = "注释/取消注释（可视、可配 motion）" },
       { "gcc", desc = "注释/取消注释当前行" },
       { "ge", desc = "上一个单词末尾" },
@@ -71,8 +60,6 @@ return {
       { "gU", desc = "大写转换（配合 motion）" },
       { "gA", desc = "跳转到父类/接口实现（Java）" },
       { "gr", group = "LSP：引用 / 重命名 / 代码操作（内置）" },
-      -- gr* 是 Neovim 0.12 内置的 LSP 键（本配置故意不覆盖 gr 前缀），
-      -- 内置 desc 是英文（vim.lsp.buf.references() 之类），这里覆盖成中文，弹窗才读得懂。
       { "grr", desc = "查找引用（LSP）" },
       { "grn", desc = "重命名符号（LSP）" },
       { "gra", desc = "代码操作（LSP）" },
@@ -83,7 +70,6 @@ return {
       { "gw", desc = "格式化（光标不动）" },
       { "gn", desc = "向前搜索并选中匹配" },
       { "gN", desc = "向后搜索并选中匹配" },
-      -- ⚠ 这几个是**屏幕行**语义（不是"忽略折行"）：g0/g$/gj/gk 在折行内移动
       { "g0", desc = "跳到屏幕行行首" },
       { "g^", desc = "跳到屏幕行行首非空" },
       { "gm", desc = "跳到行中间" },
@@ -104,8 +90,6 @@ return {
       { "gi", desc = "跳转到实现（LSP）" },
       { "gR", desc = "跳转到类型定义（LSP）" },
       { "gO", desc = "本文档符号列表（LSP）" },
-
-      -- （原顶层 t / tt / th / tv 条目已删：真实键位是 <leader>tt/th/tv，顶层 t 不触发弹窗）
 
       { "z", group = "z 前缀 —— 折叠/滚动" },
       { "za", desc = "切换折叠" },
@@ -150,7 +134,6 @@ return {
       { "]d", desc = "下一个诊断" },
       { "] ", desc = "在下一行后加空行" },
 
-      -- motions（按 d/y/c/gU/gu 等操作符后出现的动作键）
       { "w", desc = "下一个单词开头", mode = "no" },
       { "b", desc = "上一个单词开头", mode = "no" },
       { "e", desc = "下一个单词末尾", mode = "no" },
@@ -180,11 +163,9 @@ return {
       { "t", desc = "跳到指定字符前", mode = "no" },
       { "T", desc = "往回跳到指定字符前", mode = "no" },
 
-      -- text objects（d/y/c 后可选的文本对象）
       { "a", group = "包围（含空白）", mode = "xo" },
       { "i", group = "内部（不含空白）", mode = "xo" },
 
-      -- <C-w> 窗口操作
       { "<C-w>", group = "窗口操作" },
       { "<C-w>s", desc = "水平切分窗口" },
       { "<C-w>v", desc = "垂直切分窗口" },
@@ -209,7 +190,6 @@ return {
       { "<C-w>K", desc = "窗口移到最上" },
       { "<C-w>L", desc = "窗口移到最右" },
 
-      -- 其他导航（H/L 已被 bufferline 覆盖为切换缓冲区）
       { "M", desc = "光标到窗口中间行", mode = "n" },
     },
   },

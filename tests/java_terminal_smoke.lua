@@ -6,7 +6,7 @@ package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.pa
 vim.opt.rtp:append(vim.env.HOME .. "/.local/share/nvim/lazy/toggleterm.nvim")
 vim.o.shell = "/bin/bash"
 require("toggleterm").setup({ start_in_insert = false, close_on_exit = false })
-local terminals = require("core.java_terminals")
+local terminals = require("languages.java.terminal")
 local created = {}
 local checks = 0
 local function check(value, label)
