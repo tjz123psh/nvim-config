@@ -82,7 +82,7 @@ check(vim.deep_equal(hooks, vim.api.nvim_get_autocmds({ group = "language_option
 for _, command in ipairs({ "R", "JavaRun", "SpringBootCreate" }) do
   check(vim.fn.exists(":" .. command) == 2, "command " .. command)
 end
-for _, key in ipairs({ "sp", "Gc", "Gi", "Ge", "Gr", "Mp" }) do
+for _, key in ipairs({ "sp", "Gc", "Gi", "Ge", "Gr", "Mp", "Me", "Mc" }) do
   check(vim.fn.maparg("<leader>" .. key, "n") ~= "", "key " .. key)
 end
 for _, sample in ipairs({ { "java", 4 }, { "lua", 2 }, { "c", 4 }, { "cpp", 4 } }) do

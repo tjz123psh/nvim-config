@@ -5,7 +5,9 @@
 
 return {
   "MeanderingProgrammer/render-markdown.nvim",
-  ft = "markdown",
+  -- lazy 的 ft 同时决定插件生效的 file_types（插件在没有 user.file_types 时直接取它），
+  -- 所以 .mdx 必须一起列进来，否则 markdown.mdx 缓冲区不会被渲染。
+  ft = { "markdown", "markdown.mdx" },
   cmd = "RenderMarkdown",
   dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
   opts = {

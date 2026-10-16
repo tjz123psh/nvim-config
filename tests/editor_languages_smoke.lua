@@ -68,6 +68,29 @@ local ok, err = xpcall(function()
     vim.deep_equal(lines, vim.api.nvim_buf_get_lines(mdbuf, 0, -1, false)) and not vim.bo[mdbuf].modified,
     "Markdown toggling preserves source"
   )
+  local expand = vim.fn.maparg("<leader>Me", "n", false, true).callback
+  local contract = vim.fn.maparg("<leader>Mc", "n", false, true).callback
+  check(
+    type(expand) == "function" and type(contract) == "function",
+    "Markdown expand/contract keys come from the language entry"
+  )
+  expand()
+  contract()
+  check(
+    vim.deep_equal(lines, vim.api.nvim_buf_get_lines(mdbuf, 0, -1, false)) and not vim.bo[mdbuf].modified,
+    "Markdown expand/contract preserve source"
+  )
+  local mdx = base .. "/README.mdx"
+  vim.fn.writefile({ "# Title", "", "- item" }, mdx)
+  vim.cmd.edit(vim.fn.fnameescape(mdx))
+  local mdxbuf = vim.api.nvim_get_current_buf()
+  check(vim.bo[mdxbuf].filetype == "markdown.mdx", "MDX maps to the markdown.mdx filetype")
+  check(
+    vim.wait(10000, function()
+      return require("render-markdown.state").cache[mdxbuf] ~= nil
+    end, 50),
+    "renderer attaches to .mdx buffers"
+  )
 end, debug.traceback)
 for _, c in ipairs(vim.lsp.get_clients()) do
   if not before[c.id] then

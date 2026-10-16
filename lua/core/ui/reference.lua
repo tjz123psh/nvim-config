@@ -223,8 +223,11 @@ return {
     "Markdown 编辑区美化",
     {
       { "<leader>Mp", "开关当前文档美化（不另开窗口）" },
+      { "<leader>Me", "当前行上下各多露一行源码（对照原文用）" },
+      { "<leader>Mc", "撤回一行（与 <leader>Me 对称）" },
       { ":RenderMarkdown buf_enable / buf_disable", "启用 / 关闭当前缓冲区美化" },
       { ":RenderMarkdown buf_toggle", "同 <leader>Mp" },
+      { ":RenderMarkdown expand / contract", "同 <leader>Me / <leader>Mc" },
       { "插入 / 可视模式", "显示 Markdown 源码，普通模式恢复美化" },
     },
   },

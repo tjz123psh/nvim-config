@@ -465,7 +465,7 @@ eq(definitions.rust.dap.configurations.rust[2].pid(), nil, "Rust cancelled PID r
 
 local render = {
   "MeanderingProgrammer/render-markdown.nvim",
-  ft = "markdown",
+  ft = { "markdown", "markdown.mdx" },
   cmd = "RenderMarkdown",
   dependencies = { "nvim-treesitter/nvim-treesitter", "nvim-tree/nvim-web-devicons" },
   opts = {
@@ -508,35 +508,68 @@ vim.bo.filetype = "lua"
 command.callback({})
 eq(luafiles, { "/fixture/config.lua" }, "R executes the current disk file only")
 
-eq(#definitions.markdown.keys, 1, "one existing Markdown key")
-local key = definitions.markdown.keys[1]
-eq(keys(key), { 1, 2, "desc", "mode" }, "Markdown key shape")
+eq(#definitions.markdown.keys, 3, "three Markdown keys")
+local mdkeys = definitions.markdown.keys
+local toggle_key, expand_key, contract_key = mdkeys[1], mdkeys[2], mdkeys[3]
+for _, entry in ipairs({ toggle_key, expand_key, contract_key }) do
+  eq(keys(entry), { 1, 2, "desc", "mode" }, "Markdown key shape")
+  eq(entry.mode, "n", "Markdown key mode is normal")
+end
 eq(
-  { key[1], key.mode, key.desc },
-  { "<leader>Mp", "n", "Markdown：开关当前文档美化" },
-  "Markdown global key unchanged"
+  { toggle_key[1], toggle_key.desc },
+  { "<leader>Mp", "Markdown：开关当前文档美化" },
+  "Markdown toggle key unchanged"
 )
-local toggles, plugin_loads = 0, 0
+eq(
+  { expand_key[1], expand_key.desc },
+  { "<leader>Me", "Markdown：当前行上下各多露一行源码" },
+  "Markdown expand key"
+)
+eq(
+  { contract_key[1], contract_key.desc },
+  { "<leader>Mc", "Markdown：撤回一行（与 Me 对称）" },
+  "Markdown contract key"
+)
+local calls, plugin_loads = {}, 0
 _G.require = function(name)
-  eq(name, "render-markdown", "Markdown callback lazily loads renderer")
+  eq(name, "render-markdown", "Markdown callbacks lazily load the renderer")
   plugin_loads = plugin_loads + 1
   return {
     buf_toggle = function()
-      toggles = toggles + 1
+      calls[#calls + 1] = "buf_toggle"
+    end,
+    expand = function()
+      calls[#calls + 1] = "expand"
+    end,
+    contract = function()
+      calls[#calls + 1] = "contract"
     end,
   }
 end
-for _, ft in ipairs({ "text", "markdown.mdx" }) do
+for _, ft in ipairs({ "text", "yaml", "markdown_inline" }) do
   notifications = {}
   vim.bo.filetype = ft
-  key[2]()
-  eq(notifications, { { "请先打开 Markdown 文件", 1 } }, "Markdown retains exact filetype guard")
+  toggle_key[2]()
+  expand_key[2]()
+  contract_key[2]()
+  eq(notifications, {
+    { "请先打开 Markdown 文件", 1 },
+    { "请先打开 Markdown 文件", 1 },
+    { "请先打开 Markdown 文件", 1 },
+  }, "Markdown keys guard other filetypes")
 end
-eq(plugin_loads, 0, "non-Markdown key does not load renderer")
-vim.bo.filetype = "markdown"
-key[2]()
-eq(plugin_loads, 1, "Markdown key loads renderer on demand")
-eq(toggles, 1, "Markdown key toggles current buffer only")
+eq(plugin_loads, 0, "non-Markdown buffers never load the renderer")
+for _, ft in ipairs({ "markdown", "markdown.mdx" }) do
+  vim.bo.filetype = ft
+  toggle_key[2]()
+  expand_key[2]()
+  contract_key[2]()
+end
+eq(
+  calls,
+  { "buf_toggle", "expand", "contract", "buf_toggle", "expand", "contract" },
+  "Markdown keys route to toggle/expand/contract (mdx included)"
+)
 
 _G.require, _G.vim = real_require, real_vim
 os.execute, io.popen = real_execute, real_popen
