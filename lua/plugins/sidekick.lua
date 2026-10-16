@@ -2,6 +2,14 @@
 return {
   "folke/sidekick.nvim",
   opts = { nes = { enabled = false } },
+  config = function(_, opts)
+    require("sidekick").setup(opts)
+    -- 面板窗口把 Normal/NormalNC 映射到 SidekickChat，而上游从未定义这个组。
+    -- WinHighlight 指向未定义的组会退回「UI 默认背景」（猫猫 base #1e1e2e），
+    -- 于是透明主题下只有面板是一块实心色。链到 Normal 后与编辑区一样透出桌面，
+    -- 换主题也会自动跟随（Normal 的 bg 变什么它就是什么）。
+    vim.api.nvim_set_hl(0, "SidekickChat", { link = "Normal" })
+  end,
   keys = {
     {
       "<leader>aa",
