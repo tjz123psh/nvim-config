@@ -36,6 +36,102 @@ local function bundles(data)
   return vim.list_extend(result, require("spring_boot").java_extensions())
 end
 
+local JVM_ROOT = "/usr/lib/jvm"
+local MIN_LAUNCHER = 25 -- 2026-10 起的 JDT LS 需要 Java 25 才能启动
+
+local function jdk_version(dir)
+  local ok, lines = pcall(vim.fn.readfile, dir .. "/release")
+  if not ok then
+    return nil, 0
+  end
+  for _, line in ipairs(lines) do
+    local version = line:match('^JAVA_VERSION="([^"]+)"')
+    if version then
+      local major = tonumber(version:match("^(%d+)")) or 0
+      if major == 1 then
+        major = tonumber(version:match("^1%.(%d+)")) or 0
+      end
+      return version, major
+    end
+  end
+  return nil, 0
+end
+
+-- 只认带 bin/java 的目录；路径可以来自环境变量，不必在 /usr/lib/jvm 下。
+local function jdk_at(dir)
+  if not dir or dir == "" then
+    return nil
+  end
+  -- 解开软链：/usr/lib/jvm/default 这类别名会和真实目录重复。
+  dir = vim.uv.fs_realpath(vim.fs.normalize(dir)) or vim.fs.normalize(dir)
+  if vim.fn.executable(dir .. "/bin/java") ~= 1 then
+    return nil
+  end
+  local version, major = jdk_version(dir)
+  return { path = dir, version = version or "未知", major = major }
+end
+
+-- 本机已安装的 JDK，按主版本从高到低。
+local function installed_jdks()
+  local found, seen = {}, {}
+  for _, dir in ipairs(vim.fn.glob(JVM_ROOT .. "/*", false, true)) do
+    local jdk = jdk_at(dir)
+    if jdk and jdk.major > 0 and not seen[jdk.path] and vim.fn.executable(jdk.path .. "/bin/javac") == 1 then
+      seen[jdk.path] = true
+      jdk.name = jdk.major >= 9 and ("JavaSE-" .. jdk.major) or ("JavaSE-1." .. jdk.major)
+      found[#found + 1] = jdk
+    end
+  end
+  table.sort(found, function(a, b)
+    return a.major > b.major
+  end)
+  return found
+end
+
+-- 跑 jdtls 自己的 JVM：专用开关 > JAVA_HOME（够新才用）> 本机最高 > 交给 PATH。
+local function launcher_jdk(installed)
+  local override = jdk_at(vim.env.NVIM_JDTLS_JAVA_HOME)
+  if override then
+    if override.major < MIN_LAUNCHER then
+      vim.notify(
+        string.format(
+          "NVIM_JDTLS_JAVA_HOME 指向 Java %s，低于 jdtls 要求的 %d；仍按你的设置启动",
+          override.version,
+          MIN_LAUNCHER
+        ),
+        vim.log.levels.WARN
+      )
+    end
+    return override
+  end
+  local home = jdk_at(vim.env.JAVA_HOME)
+  if home and home.major >= MIN_LAUNCHER then
+    return home
+  end
+  for _, jdk in ipairs(installed) do
+    if jdk.major >= MIN_LAUNCHER then
+      return jdk
+    end
+  end
+  if home then
+    vim.notify(
+      string.format("JAVA_HOME 指向 Java %s，低于 jdtls 要求的 %d；已忽略", home.version, MIN_LAUNCHER),
+      vim.log.levels.WARN
+    )
+  end
+  if installed[1] then
+    vim.notify(
+      string.format(
+        "没有 Java %d+，jdtls 将尝试用 Java %s 启动（可能失败）",
+        MIN_LAUNCHER,
+        installed[1].version
+      ),
+      vim.log.levels.WARN
+    )
+  end
+  return installed[1]
+end
+
 function M.setup(opts)
   local jdtls = require("jdtls")
   local data = vim.fn.stdpath("data")
@@ -43,20 +139,28 @@ function M.setup(opts)
   opts.cmd = opts.cmd or { data .. "/mason/bin/jdtls" }
   opts.init_options = { bundles = bundles(data) }
   opts.capabilities = require("blink.cmp").get_lsp_capabilities(opts.capabilities)
-  local runtimes = {}
-  for _, runtime in ipairs({
-    { name = "JavaSE-21", path = "/usr/lib/jvm/java-21-openjdk" },
-    { name = "JavaSE-1.8", path = "/usr/lib/jvm/java-8-openjdk" },
-  }) do
-    if vim.fn.isdirectory(runtime.path) == 1 then
-      runtime.default = #runtimes == 0
-      runtimes[#runtimes + 1] = runtime
+  local installed = installed_jdks()
+  -- 默认项目 JDK：JAVA_HOME 指的那个 > 本机最高版本。
+  local home = jdk_at(vim.env.JAVA_HOME)
+  local default
+  if home then
+    for _, jdk in ipairs(installed) do
+      if jdk.path == home.path then
+        default = jdk
+      end
     end
+  end
+  default = default or installed[1]
+  local runtimes = {}
+  for _, jdk in ipairs(installed) do
+    runtimes[#runtimes + 1] = { name = jdk.name, path = jdk.path, default = jdk == default or nil }
   end
   opts.settings =
     vim.tbl_deep_extend("force", opts.settings or {}, { java = { configuration = { runtimes = runtimes } } })
-  if vim.fn.executable("/usr/lib/jvm/java-21-openjdk/bin/java") == 1 then
-    opts.cmd[#opts.cmd + 1] = "--java-executable=/usr/lib/jvm/java-21-openjdk/bin/java"
+  -- 这里只决定服务端自己的 JVM；项目编译目标仍由上面的 runtimes 决定。
+  local launcher = launcher_jdk(installed)
+  if launcher then
+    opts.cmd[#opts.cmd + 1] = "--java-executable=" .. launcher.path .. "/bin/java"
   end
   for _, path in ipairs({ data .. "/java-extras/lombok.jar", data .. "/mason/packages/jdtls/lombok.jar" }) do
     if vim.uv.fs_stat(path) then

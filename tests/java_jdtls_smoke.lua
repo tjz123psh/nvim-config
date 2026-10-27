@@ -3,6 +3,32 @@ local base = assert(vim.env.NVIM_JAVA_TEST_TMP, "set isolated NVIM_JAVA_TEST_TMP
 assert(base:match("^/tmp/nvim%-java%-"), "temporary test directory required")
 local root = vim.fn.getcwd()
 package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
+-- jdtls 需要 Java 25+：取本机版本最高的 JDK，别把版本号写死在测试里。
+local function newest_jdk()
+  local best, best_major = nil, -1
+  for _, dir in ipairs(vim.fn.glob("/usr/lib/jvm/*", false, true)) do
+    if vim.fn.executable(dir .. "/bin/java") == 1 then
+      local major = 0
+      local ok, lines = pcall(vim.fn.readfile, dir .. "/release")
+      if ok then
+        for _, line in ipairs(lines) do
+          local version = line:match('^JAVA_VERSION="([^"]+)"')
+          if version then
+            major = tonumber(version:match("^(%d+)")) or 0
+            if major == 1 then
+              major = tonumber(version:match("^1%.(%d+)")) or 0
+            end
+          end
+        end
+      end
+      if major > best_major then
+        best, best_major = dir, major
+      end
+    end
+  end
+  return assert(best, "no JDK found under /usr/lib/jvm")
+end
+local java_executable = newest_jdk() .. "/bin/java"
 local data = vim.env.HOME .. "/.local/share/nvim"
 vim.opt.rtp:append(data .. "/lazy/nvim-jdtls")
 local clients, results = {}, {}
@@ -37,7 +63,7 @@ local function project(name)
   local id = require("jdtls").start_or_attach({
     cmd = {
       data .. "/mason/bin/jdtls",
-      "--java-executable=/usr/lib/jvm/java-21-openjdk/bin/java",
+      "--java-executable=" .. java_executable,
       "-data",
       base .. "/workspace-" .. name,
     },
