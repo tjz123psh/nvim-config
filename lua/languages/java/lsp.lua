@@ -23,11 +23,13 @@ local function bundles(data)
     "/mason/packages/java-test/extension/server/*.jar",
   }) do
     for _, jar in ipairs(vim.fn.glob(data .. pattern, false, true)) do
-      -- runner/agent/ASM 不是要装入 jdtls 的 OSGi bundle。
+      -- runner 和 jacoco agent 不能当 OSGi bundle 装；
+      -- 核心 asm 由 jdtls 自带（org.objectweb.asm_9.10.1.jar），重复会冲突，
+      -- 但 asm.commons / asm.tree 必须装：java-test 里的 jacoco.core 依赖它们。
       if
         not jar:match("runner%-jar%-with%-dependencies")
         and not jar:match("jacocoagent")
-        and not jar:match("org%.objectweb%.asm")
+        and not jar:match("org%.objectweb%.asm_")
       then
         result[#result + 1] = jar
       end
